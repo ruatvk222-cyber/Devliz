@@ -5,6 +5,7 @@ import { useApp } from '../store';
 import { StatusBadge } from '../components/StatusBadge';
 import { BulkCreateModal } from '../components/BulkCreateModal';
 import { EditProfileDrawer } from '../components/EditProfileDrawer';
+import { useT } from '../i18n';
 
 export function ProfilesPage(): JSX.Element {
   const profiles = useApp((s) => s.profiles);
@@ -21,6 +22,7 @@ export function ProfilesPage(): JSX.Element {
 
   const [bulkOpen, setBulkOpen] = useState(false);
   const [editing, setEditing] = useState<Profile | null>(null);
+  const t = useT();
 
   const groups = useMemo(() => {
     const set = new Set<string>();
@@ -74,13 +76,13 @@ export function ProfilesPage(): JSX.Element {
     await refresh();
   }
   async function remove(id: string): Promise<void> {
-    if (!confirm('Delete this profile? This will not delete its on-disk data dir.')) return;
+    if (!confirm(t('profiles.deleteConfirmOne'))) return;
     await window.api.profiles.delete(id);
     await refresh();
   }
   async function removeSelected(): Promise<void> {
     if (selected.length === 0) return;
-    if (!confirm(`Delete ${selected.length} profiles?`)) return;
+    if (!confirm(t('profiles.deleteConfirmMany', { n: selected.length }))) return;
     await window.api.profiles.deleteMany(selected);
     clearSelection();
     await refresh();
@@ -90,13 +92,13 @@ export function ProfilesPage(): JSX.Element {
     <div className="h-full flex flex-col">
       <header className="px-6 py-4 border-b border-border flex items-center gap-3 bg-bg-surface">
         <h1 className="text-lg font-semibold flex items-center gap-2">
-          <Users size={18} className="text-accent" /> Profiles
+          <Users size={18} className="text-accent" /> {t('profiles.title')}
         </h1>
         <div className="flex-1 max-w-md relative">
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-dim" />
           <input
             type="text"
-            placeholder="Search by name, tag, group…"
+            placeholder={t('profiles.search')}
             className="input pl-8"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -108,7 +110,7 @@ export function ProfilesPage(): JSX.Element {
             value={groupFilter}
             onChange={(e) => setGroupFilter(e.target.value)}
           >
-            <option value="">All groups</option>
+            <option value="">{t('profiles.allGroups')}</option>
             {groups.map((g) => (
               <option key={g} value={g}>
                 {g}
@@ -118,16 +120,16 @@ export function ProfilesPage(): JSX.Element {
         )}
         <div className="flex items-center gap-2">
           <button type="button" className="btn-primary" onClick={() => setBulkOpen(true)}>
-            <Plus size={14} /> Bulk create
+            <Plus size={14} /> {t('profiles.bulkCreate')}
           </button>
           <button type="button" className="btn-success" onClick={launchSelected} disabled={selected.length === 0}>
-            <Play size={14} /> Launch selected ({selected.length})
+            <Play size={14} /> {t('profiles.launchSelected')} ({selected.length})
           </button>
           <button type="button" className="btn-secondary" onClick={stopAll}>
-            <Square size={14} /> Stop all
+            <Square size={14} /> {t('profiles.stopAll')}
           </button>
           <button type="button" className="btn-danger" onClick={removeSelected} disabled={selected.length === 0}>
-            <Trash2 size={14} /> Delete
+            <Trash2 size={14} /> {t('profiles.deleteSelected')} ({selected.length})
           </button>
         </div>
       </header>
@@ -136,9 +138,9 @@ export function ProfilesPage(): JSX.Element {
         {filtered.length === 0 ? (
           <div className="h-full flex items-center justify-center text-center text-text-dim">
             <div>
-              <p className="mb-2">No profiles yet.</p>
+              <p className="mb-2">{t('profiles.empty')}</p>
               <button className="btn-primary" onClick={() => setBulkOpen(true)}>
-                <Plus size={14} /> Bulk create your first profiles
+                <Plus size={14} /> {t('profiles.emptyCta')}
               </button>
             </div>
           </div>
@@ -154,14 +156,14 @@ export function ProfilesPage(): JSX.Element {
                     className="accent-accent"
                   />
                 </th>
-                <th className="px-4 py-2">Name</th>
-                <th className="px-4 py-2">Group</th>
-                <th className="px-4 py-2">Status</th>
-                <th className="px-4 py-2">OS</th>
-                <th className="px-4 py-2">Locale</th>
-                <th className="px-4 py-2">Timezone</th>
-                <th className="px-4 py-2">Proxy</th>
-                <th className="px-4 py-2 text-right">Actions</th>
+                <th className="px-4 py-2">{t('profiles.col.name')}</th>
+                <th className="px-4 py-2">{t('profiles.col.group')}</th>
+                <th className="px-4 py-2">{t('profiles.col.status')}</th>
+                <th className="px-4 py-2">{t('profiles.col.os')}</th>
+                <th className="px-4 py-2">{t('profiles.col.locale')}</th>
+                <th className="px-4 py-2">{t('profiles.col.timezone')}</th>
+                <th className="px-4 py-2">{t('profiles.col.proxy')}</th>
+                <th className="px-4 py-2 text-right">{t('profiles.col.actions')}</th>
               </tr>
             </thead>
             <tbody>

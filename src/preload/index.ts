@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
   AppSettings,
+  AutomationConfig,
   BulkCreateOptions,
   IpcApi,
   LauncherStatus,
@@ -34,6 +35,10 @@ const api: IpcApi = {
   launcher: {
     launch: (id) => ipcRenderer.invoke('launcher.launch', id) as Promise<LauncherStatus>,
     launchMany: (ids) => ipcRenderer.invoke('launcher.launchMany', ids) as Promise<LauncherStatus[]>,
+    launchWithAutomation: (id, automation: AutomationConfig) =>
+      ipcRenderer.invoke('launcher.launchWithAutomation', id, automation) as Promise<LauncherStatus>,
+    launchManyWithAutomation: (ids, automation: AutomationConfig) =>
+      ipcRenderer.invoke('launcher.launchManyWithAutomation', ids, automation) as Promise<LauncherStatus[]>,
     stop: (id) => ipcRenderer.invoke('launcher.stop', id) as Promise<void>,
     stopAll: () => ipcRenderer.invoke('launcher.stopAll') as Promise<void>,
     status: () => ipcRenderer.invoke('launcher.status') as Promise<LauncherStatus[]>,

@@ -88,8 +88,22 @@ export function pick<T>(arr: readonly T[], rng: () => number = Math.random): T {
   return arr[Math.floor(rng() * arr.length)]!;
 }
 
-export function generateFingerprint(os?: OsPlatform): FingerprintConfig {
-  const target = os ?? pick(['windows', 'macos', 'linux'] as const);
+export interface GenerateFingerprintOptions {
+  os?: OsPlatform;
+  /**
+   * If 'en-US' (default), force locale = en-US so every profile launches with
+   * `--lang=en-US` and English `Accept-Language`. If 'random', draw from the
+   * wider locale pool (legacy behaviour).
+   */
+  localeMode?: 'en-US' | 'random';
+}
+
+export function generateFingerprint(
+  osOrOptions?: OsPlatform | GenerateFingerprintOptions,
+): FingerprintConfig {
+  const opts: GenerateFingerprintOptions =
+    typeof osOrOptions === 'string' ? { os: osOrOptions } : (osOrOptions ?? {});
+  const target = opts.os ?? pick(['windows', 'macos', 'linux'] as const);
   let userAgent: string;
   let platform: string;
   switch (target) {
@@ -107,7 +121,11 @@ export function generateFingerprint(os?: OsPlatform): FingerprintConfig {
       break;
   }
   const [w, h] = pick(RESOLUTIONS);
-  const locale = pick(LOCALES);
+  const localeMode = opts.localeMode ?? 'en-US';
+  const locale =
+    localeMode === 'random'
+      ? pick(LOCALES)
+      : LOCALES[0]!; // en-US is index 0
   const gpu = pick(WEBGL_RENDERERS);
   return {
     userAgent,

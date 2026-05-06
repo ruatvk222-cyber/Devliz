@@ -1,0 +1,154 @@
+/* global chrome */
+'use strict';
+
+const GMAIL_URL = 'https://mail.google.com/mail/u/0/#inbox';
+
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.storage.sync.get(
+    ['readSeconds', 'maxItems', 'humanLike'],
+    (vals) => {
+      const defaults = {};
+      if (typeof vals.readSeconds !== 'number') defaults.readSeconds = 5;
+      if (typeof vals.maxItems !== 'number') defaults.maxItems = 50;
+      if (typeof vals.humanLike !== 'boolean') defaults.humanLike = true;
+      if (Object.keys(defaults).length > 0) {
+        chrome.storage.sync.set(defaults);
+      }
+    },
+  );
+});
+
+// Allow other extension surfaces (popup, content script) to ask the background
+// to open / focus a Gmail tab.
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (!msg || msg.type !== 'gar:open-gmail') return false;
+  chrome.tabs.query({ url: 'https://mail.google.com/*' }, (tabs) => {
+    if (tabs && tabs.length > 0) {
+      const t = tabs[0];
+      chrome.tabs.update(t.id, { active: true });
+      if (t.windowId !== undefined) {
+        try {
+          chrome.windows.update(t.windowId, { focused: true });
+        } catch (_) {
+          /* ignore */
+        }
+      }
+      sendResponse({ ok: true, tabId: t.id, created: false });
+    } else {
+      chrome.tabs.create({ url: GMAIL_URL, active: true }, (tab) => {
+        sendResponse({ ok: true, tabId: tab && tab.id, created: true });
+      });
+    }
+  });
+  return true; // keep channel open for async sendResponse
+});
+
+// ---------- Devliz auto-bootstrap ----------
+//
+// When the extension is loaded with a `devliz-config.json` next to this file,
+// the host app (Devliz) wants the automation to start without a human clicking
+// the popup. The config tells us:
+//   - readSeconds / maxItems / humanLike → seed chrome.storage.sync
+//   - autoStart=true                     → set chrome.storage.local autoStart
+//   - webhookUrl + token                 → POST progress events back so Devliz
+//                                          can close the profile when finished.
+//
+// chrome.storage.local + a fresh autoStartTs are how content.js decides to
+// start automatically once Gmail finishes loading.
+
+const DEVLIZ_CONFIG_URL = chrome.runtime.getURL('devliz-config.json');
+let devlizCfg = null;
+let devlizFinished = false;
+
+async function devlizLoadConfig() {
+  try {
+    const res = await fetch(DEVLIZ_CONFIG_URL, { cache: 'no-store' });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (_) {
+    return null;
+  }
+}
+
+function devlizPromisify(fn) {
+  return new Promise((resolve) => fn(resolve));
+}
+
+async function devlizPostEvent(phase, detail) {
+  if (!devlizCfg || !devlizCfg.webhookUrl || !devlizCfg.token) return;
+  try {
+    await fetch(devlizCfg.webhookUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: devlizCfg.token, phase, detail }),
+    });
+  } catch (_) {
+    /* network errors are non-fatal — the profile may already be closing */
+  }
+}
+
+async function devlizBootstrap() {
+  const cfg = await devlizLoadConfig();
+  if (!cfg || !cfg.autoStart) return;
+  devlizCfg = cfg;
+  devlizFinished = false;
+
+  const readSeconds = clampInt(cfg.readSeconds, 1, 120, 5);
+  const maxItems = clampInt(cfg.maxItems, 1, 200, 20);
+  const humanLike = !!cfg.humanLike;
+
+  await devlizPromisify((cb) =>
+    chrome.storage.sync.set({ readSeconds, maxItems, humanLike }, cb),
+  );
+  await devlizPromisify((cb) =>
+    chrome.storage.local.set(
+      { autoStart: true, autoStartTs: Date.now() },
+      cb,
+    ),
+  );
+
+  // Open Gmail (or focus existing tab).
+  chrome.tabs.query({ url: 'https://mail.google.com/*' }, (tabs) => {
+    if (tabs && tabs.length > 0) {
+      const t = tabs[0];
+      chrome.tabs.update(t.id, { active: true, url: GMAIL_URL });
+    } else {
+      chrome.tabs.create({ url: GMAIL_URL, active: true });
+    }
+  });
+
+  await devlizPostEvent('bootstrap', { readSeconds, maxItems, humanLike });
+}
+
+function clampInt(value, min, max, fallback) {
+  const n = parseInt(value, 10);
+  if (Number.isNaN(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+// Listen for progress messages from the content script. When the run reaches
+// a terminal phase, ping Devliz so it can close the profile.
+chrome.runtime.onMessage.addListener((msg) => {
+  if (!devlizCfg) return false;
+  if (!msg || msg.type !== 'gar:progress' || !msg.progress) return false;
+  const phase = msg.progress.phase;
+  if (
+    !devlizFinished &&
+    (phase === 'finished' ||
+      phase === 'no-unread' ||
+      phase === 'error' ||
+      phase === 'stopped')
+  ) {
+    devlizFinished = true;
+    void devlizPostEvent(phase, msg.progress);
+  }
+  return false;
+});
+
+// Top-level boot is the most reliable trigger when Chrome is launched fresh
+// with --load-extension. onStartup / onInstalled both fire too, but the SW is
+// already running here.
+void devlizBootstrap();
+chrome.runtime.onStartup.addListener(() => {
+  void devlizBootstrap();
+});
