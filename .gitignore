@@ -1,0 +1,19 @@
+node_modules
+dist
+out
+release
+*.log
+.DS_Store
+.vscode
+.idea
+.cache
+.env
+.env.local
+*.tsbuildinfo
+
+# Electron build outputs
+out/
+release/
+
+# Test artifacts
+coverage/

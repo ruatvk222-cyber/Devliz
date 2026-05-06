@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: #0b0d12;
+  color: #e5e7eb;
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+input,
+textarea,
+select {
+  user-select: text;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #2a3142;
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3a4252;
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-accent text-white hover:bg-accent-hover;
+  }
+  .btn-secondary {
+    @apply btn bg-bg-elevated text-text border border-border hover:bg-bg-hover;
+  }
+  .btn-ghost {
+    @apply btn text-text-muted hover:bg-bg-hover hover:text-text;
+  }
+  .btn-danger {
+    @apply btn bg-danger/15 text-danger border border-danger/30 hover:bg-danger/25;
+  }
+  .btn-success {
+    @apply btn bg-success/15 text-success border border-success/30 hover:bg-success/25;
+  }
+  .input {
+    @apply w-full rounded-md bg-bg-surface border border-border px-3 py-1.5 text-sm text-text placeholder:text-text-dim focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent;
+  }
+  .label {
+    @apply block text-xs font-medium text-text-muted mb-1;
+  }
+  .card {
+    @apply bg-bg-surface border border-border rounded-lg;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium;
+  }
+  .badge-idle {
+    @apply badge bg-bg-elevated text-text-muted border border-border;
+  }
+  .badge-running {
+    @apply badge bg-success/15 text-success border border-success/30;
+  }
+  .badge-launching {
+    @apply badge bg-warn/15 text-warn border border-warn/30;
+  }
+  .badge-error {
+    @apply badge bg-danger/15 text-danger border border-danger/30;
+  }
+}
