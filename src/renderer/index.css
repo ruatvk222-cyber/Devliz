@@ -2,8 +2,53 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
+/* ---------- Theme tokens ---------- */
+/*
+ * The whole UI reads colours through CSS variables. Switching the
+ * `data-theme` attribute on <html> swaps the entire palette without any
+ * component code changes. Tailwind sees these as `bg-bg`, `text-text`, etc.
+ * via the colour map in tailwind.config.js.
+ */
+
+:root,
+[data-theme='dark'] {
   color-scheme: dark;
+  --color-bg: #0b0d12;
+  --color-bg-surface: #11141b;
+  --color-bg-elevated: #161a23;
+  --color-bg-hover: #1c2230;
+  --color-border: #1f2532;
+  --color-border-strong: #2a3142;
+  --color-text: #e5e7eb;
+  --color-text-muted: #9aa3b2;
+  --color-text-dim: #6b7280;
+  --color-accent: #6366f1;
+  --color-accent-hover: #7c7ff5;
+  --color-success: #10b981;
+  --color-warn: #f59e0b;
+  --color-danger: #ef4444;
+  --color-scrollbar: #2a3142;
+  --color-scrollbar-hover: #3a4252;
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+  --color-bg: #f7f8fa;
+  --color-bg-surface: #ffffff;
+  --color-bg-elevated: #f1f3f7;
+  --color-bg-hover: #eef0f5;
+  --color-border: #e1e5ec;
+  --color-border-strong: #cbd1dc;
+  --color-text: #1a1d23;
+  --color-text-muted: #4b5563;
+  --color-text-dim: #6b7280;
+  --color-accent: #6366f1;
+  --color-accent-hover: #4f52d6;
+  --color-success: #059669;
+  --color-warn: #d97706;
+  --color-danger: #dc2626;
+  --color-scrollbar: #c8ceda;
+  --color-scrollbar-hover: #a4adbe;
 }
 
 html,
@@ -16,8 +61,8 @@ body,
 }
 
 body {
-  background: #0b0d12;
-  color: #e5e7eb;
+  background: var(--color-bg);
+  color: var(--color-text);
   font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
@@ -39,11 +84,11 @@ select {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #2a3142;
+  background: var(--color-scrollbar);
   border-radius: 6px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3a4252;
+  background: var(--color-scrollbar-hover);
 }
 
 @layer components {

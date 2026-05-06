@@ -111,6 +111,9 @@ export interface LauncherStatus {
   error?: string;
 }
 
+export type AppLanguage = 'en-US' | 'vi-VN';
+export type AppTheme = 'dark' | 'light';
+
 export interface AppSettings {
   /** Optional override for Chrome/Chromium binary path (Windows). */
   chromePath?: string;
@@ -120,11 +123,45 @@ export interface AppSettings {
   defaultStartUrl: string;
   /** Where profile data dirs are stored. Default: <userData>/profiles. */
   profilesRoot?: string;
+  /** UI language. */
+  language: AppLanguage;
+  /** UI theme. */
+  theme: AppTheme;
+  /**
+   * If true, every newly-generated fingerprint defaults to en-US.
+   * If false, fingerprints draw from a wider pool (legacy behaviour).
+   */
+  forceEnUsLocale: boolean;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   maxConcurrentLaunches: 5,
   defaultStartUrl: 'https://www.google.com/',
+  language: 'en-US',
+  theme: 'dark',
+  forceEnUsLocale: true,
+};
+
+export type AutomationKind = 'gmail-auto-reader';
+
+export interface AutomationConfig {
+  kind: AutomationKind;
+  /** Time spent reading each opened email, in seconds (1–120). */
+  readSeconds: number;
+  /** Max number of unread emails to process (1–200). */
+  maxItems: number;
+  /** Add ±20% jitter to delays so the cadence looks more natural. */
+  humanLike: boolean;
+  /** Close the launched profile automatically when the run finishes. */
+  closeOnFinish: boolean;
+}
+
+export const DEFAULT_AUTOMATION_GMAIL: AutomationConfig = {
+  kind: 'gmail-auto-reader',
+  readSeconds: 5,
+  maxItems: 20,
+  humanLike: false,
+  closeOnFinish: true,
 };
 
 export interface IpcApi {
@@ -149,6 +186,11 @@ export interface IpcApi {
   launcher: {
     launch(profileId: string): Promise<LauncherStatus>;
     launchMany(profileIds: string[]): Promise<LauncherStatus[]>;
+    launchWithAutomation(profileId: string, automation: AutomationConfig): Promise<LauncherStatus>;
+    launchManyWithAutomation(
+      profileIds: string[],
+      automation: AutomationConfig,
+    ): Promise<LauncherStatus[]>;
     stop(profileId: string): Promise<void>;
     stopAll(): Promise<void>;
     status(): Promise<LauncherStatus[]>;

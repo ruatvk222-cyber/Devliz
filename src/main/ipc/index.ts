@@ -1,6 +1,7 @@
 import { BrowserWindow, ipcMain } from 'electron';
 import type {
   AppSettings,
+  AutomationConfig,
   BulkCreateOptions,
   Profile,
   ProxyCheckResult,
@@ -67,6 +68,19 @@ export function registerIpcHandlers(): void {
   // ----- Launcher
   ipcMain.handle('launcher.launch', async (_e, id: string): Promise<LauncherStatus> => launchProfile(id));
   ipcMain.handle('launcher.launchMany', async (_e, ids: string[]): Promise<LauncherStatus[]> => launchProfiles(ids));
+  ipcMain.handle(
+    'launcher.launchWithAutomation',
+    async (_e, id: string, automation: AutomationConfig): Promise<LauncherStatus> =>
+      launchProfile(id, { automation }),
+  );
+  ipcMain.handle(
+    'launcher.launchManyWithAutomation',
+    async (
+      _e,
+      ids: string[],
+      automation: AutomationConfig,
+    ): Promise<LauncherStatus[]> => launchProfiles(ids, { automation }),
+  );
   ipcMain.handle('launcher.stop', async (_e, id: string): Promise<void> => {
     await stopProfile(id);
   });

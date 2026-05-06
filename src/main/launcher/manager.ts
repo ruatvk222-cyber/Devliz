@@ -1,19 +1,29 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
-import type { LauncherStatus, ProfileStatus, ProxyConfig } from '@shared/types';
+import type { AutomationConfig, LauncherStatus, ProfileStatus, ProxyConfig } from '@shared/types';
 import { getProfile, setProfileStatus } from '../repositories/profiles';
 import { getProxy } from '../repositories/proxies';
 import { getSettings } from '../repositories/settings';
 import { detectChromePath } from './chrome-path';
 import { writeFingerprintExtension } from './extension';
 import { authProxyApplies, startAuthProxy, type AuthProxyHandle } from './auth-proxy';
+import { prepareAutomation } from './automation';
+import type { AutomationRegistration } from '../automation/listener';
 
 interface RunningProfile {
   pid: number;
   child: ChildProcess;
   remoteDebugPort: number;
   authProxy?: AuthProxyHandle;
+  automation?: {
+    registration: AutomationRegistration;
+    closeOnFinish: boolean;
+  };
+}
+
+export interface LaunchOptions {
+  automation?: AutomationConfig;
 }
 
 const running = new Map<string, RunningProfile>();
@@ -59,7 +69,10 @@ function updateStatus(profileId: string, status: ProfileStatus, extra: Partial<L
   emit({ profileId, status, ...extra });
 }
 
-export async function launchProfile(profileId: string): Promise<LauncherStatus> {
+export async function launchProfile(
+  profileId: string,
+  options: LaunchOptions = {},
+): Promise<LauncherStatus> {
   const profile = getProfile(profileId);
   if (!profile) {
     const err: LauncherStatus = { profileId, status: 'error', error: 'profile not found' };
@@ -119,13 +132,42 @@ export async function launchProfile(profileId: string): Promise<LauncherStatus> 
         : undefined,
   });
 
+  // If automation is requested, copy the bundled automation extension into
+  // the profile dir, register a webhook callback, and load it alongside the
+  // fingerprint extension.
+  let automationPrep: Awaited<ReturnType<typeof prepareAutomation>> | null = null;
+  if (options.automation) {
+    try {
+      automationPrep = await prepareAutomation(
+        profile.dataDir,
+        options.automation,
+        (event) => onAutomationEvent(profileId, event.phase),
+      );
+    } catch (err) {
+      if (authProxy) await authProxy.close().catch(() => undefined);
+      const msg = err instanceof Error ? err.message : String(err);
+      const e: LauncherStatus = {
+        profileId,
+        status: 'error',
+        error: `Failed to prepare automation: ${msg}`,
+      };
+      setProfileStatus(profileId, 'error');
+      emit(e);
+      return e;
+    }
+  }
+
+  const extensionDirs: string[] = [extDir];
+  if (automationPrep) extensionDirs.push(automationPrep.extDir);
+  const loadList = extensionDirs.join(',');
+
   const debugPort = pickPort();
   const fp = profile.fingerprint;
 
   const args: string[] = [
     `--user-data-dir=${profile.dataDir}`,
-    `--load-extension=${extDir}`,
-    `--disable-extensions-except=${extDir}`,
+    `--load-extension=${loadList}`,
+    `--disable-extensions-except=${loadList}`,
     `--user-agent=${fp.userAgent}`,
     `--lang=${fp.locale}`,
     `--accept-lang=${fp.acceptLanguage}`,
@@ -161,17 +203,30 @@ export async function launchProfile(profileId: string): Promise<LauncherStatus> 
 
   if (!child.pid) {
     if (authProxy) await authProxy.close().catch(() => undefined);
+    if (automationPrep) automationPrep.registration.unregister();
     const err: LauncherStatus = { profileId, status: 'error', error: 'Failed to spawn browser process.' };
     setProfileStatus(profileId, 'error');
     emit(err);
     return err;
   }
 
-  running.set(profileId, { pid: child.pid, child, remoteDebugPort: debugPort, authProxy });
+  running.set(profileId, {
+    pid: child.pid,
+    child,
+    remoteDebugPort: debugPort,
+    authProxy,
+    automation: automationPrep
+      ? {
+          registration: automationPrep.registration,
+          closeOnFinish: options.automation?.closeOnFinish ?? true,
+        }
+      : undefined,
+  });
 
   child.once('exit', () => {
     const r = running.get(profileId);
     if (r?.authProxy) void r.authProxy.close().catch(() => undefined);
+    if (r?.automation) r.automation.registration.unregister();
     running.delete(profileId);
     updateStatus(profileId, 'idle');
   });
@@ -179,6 +234,7 @@ export async function launchProfile(profileId: string): Promise<LauncherStatus> 
   child.once('error', (err) => {
     const r = running.get(profileId);
     if (r?.authProxy) void r.authProxy.close().catch(() => undefined);
+    if (r?.automation) r.automation.registration.unregister();
     running.delete(profileId);
     setProfileStatus(profileId, 'error');
     emit({ profileId, status: 'error', error: err.message });
@@ -189,7 +245,10 @@ export async function launchProfile(profileId: string): Promise<LauncherStatus> 
   return { profileId, status: 'running', pid: child.pid, remoteDebugPort: debugPort };
 }
 
-export async function launchProfiles(profileIds: string[]): Promise<LauncherStatus[]> {
+export async function launchProfiles(
+  profileIds: string[],
+  options: LaunchOptions = {},
+): Promise<LauncherStatus[]> {
   const settings = getSettings();
   const concurrency = Math.max(1, Math.min(50, settings.maxConcurrentLaunches));
   const queue = [...profileIds];
@@ -200,7 +259,7 @@ export async function launchProfiles(profileIds: string[]): Promise<LauncherStat
     while (queue.length > 0) {
       const id = queue.shift();
       if (!id) return;
-      const r = await launchProfile(id);
+      const r = await launchProfile(id, options);
       results.push(r);
       // Small stagger so we don't hammer disks at exactly the same moment.
       await new Promise((res) => setTimeout(res, 150));
@@ -210,6 +269,38 @@ export async function launchProfiles(profileIds: string[]): Promise<LauncherStat
   for (let i = 0; i < concurrency; i++) workers.push(worker());
   await Promise.all(workers);
   return results;
+}
+
+/**
+ * Called from the automation HTTP listener when an extension reports a
+ * progress event. We only act on terminal phases — when an automation
+ * finishes (or errors / is stopped), close the profile if its config asked
+ * us to.
+ */
+function onAutomationEvent(
+  profileId: string,
+  phase:
+    | 'bootstrap'
+    | 'started'
+    | 'opening'
+    | 'reading'
+    | 'done-item'
+    | 'finished'
+    | 'no-unread'
+    | 'error'
+    | 'stopped',
+): void {
+  const terminal =
+    phase === 'finished' || phase === 'no-unread' || phase === 'error' || phase === 'stopped';
+  if (!terminal) return;
+  const r = running.get(profileId);
+  if (!r) return;
+  if (!r.automation || !r.automation.closeOnFinish) return;
+  // Give the in-page overlay a couple of seconds so the user sees the
+  // 'Done' state before the window closes.
+  setTimeout(() => {
+    void stopProfile(profileId).catch(() => undefined);
+  }, 2500);
 }
 
 export async function stopProfile(profileId: string): Promise<void> {
@@ -234,6 +325,7 @@ export function stopAllProfiles(): void {
       /* ignore */
     }
     if (r.authProxy) void r.authProxy.close().catch(() => undefined);
+    if (r.automation) r.automation.registration.unregister();
     setProfileStatus(id, 'idle');
   }
   running.clear();

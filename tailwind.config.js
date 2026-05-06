@@ -1,31 +1,39 @@
 /** @type {import('tailwindcss').Config} */
+
+// All theme colours are CSS variables defined in src/renderer/index.css.
+// Tailwind utilities like `bg-bg-surface`, `text-text-muted`, `border-border`
+// resolve to those variables, so toggling `data-theme="light"` on <html>
+// swaps the whole palette without component-level changes.
+
+const cssVar = (name) => `rgb(from var(${name}) r g b / <alpha-value>)`;
+
 export default {
   content: ['./src/renderer/**/*.{html,ts,tsx}'],
   theme: {
     extend: {
       colors: {
         bg: {
-          DEFAULT: '#0b0d12',
-          surface: '#11141b',
-          elevated: '#161a23',
-          hover: '#1c2230',
+          DEFAULT: cssVar('--color-bg'),
+          surface: cssVar('--color-bg-surface'),
+          elevated: cssVar('--color-bg-elevated'),
+          hover: cssVar('--color-bg-hover'),
         },
         border: {
-          DEFAULT: '#1f2532',
-          strong: '#2a3142',
+          DEFAULT: cssVar('--color-border'),
+          strong: cssVar('--color-border-strong'),
         },
         text: {
-          DEFAULT: '#e5e7eb',
-          muted: '#9aa3b2',
-          dim: '#6b7280',
+          DEFAULT: cssVar('--color-text'),
+          muted: cssVar('--color-text-muted'),
+          dim: cssVar('--color-text-dim'),
         },
         accent: {
-          DEFAULT: '#6366f1',
-          hover: '#7c7ff5',
+          DEFAULT: cssVar('--color-accent'),
+          hover: cssVar('--color-accent-hover'),
         },
-        success: '#10b981',
-        warn: '#f59e0b',
-        danger: '#ef4444',
+        success: cssVar('--color-success'),
+        warn: cssVar('--color-warn'),
+        danger: cssVar('--color-danger'),
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],

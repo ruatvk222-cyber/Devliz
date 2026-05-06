@@ -16,6 +16,10 @@ extraResources:
     to: extension
     filter:
       - "**/*"
+  - from: resources/extensions
+    to: extensions
+    filter:
+      - "**/*"
 win:
   target:
     - target: nsis

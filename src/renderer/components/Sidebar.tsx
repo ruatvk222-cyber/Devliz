@@ -1,21 +1,26 @@
-import { Globe2, Network, Settings as SettingsIcon, Shield } from 'lucide-react';
+import { Globe2, Network, Settings as SettingsIcon, Shield, Zap } from 'lucide-react';
 import { useApp } from '../store';
+import { useT } from '../i18n';
+
+type Page = 'profiles' | 'proxies' | 'automation' | 'settings';
 
 interface SidebarProps {
-  current: 'profiles' | 'proxies' | 'settings';
-  onNavigate(p: 'profiles' | 'proxies' | 'settings'): void;
+  current: Page;
+  onNavigate(p: Page): void;
 }
-
-const items: Array<{ key: SidebarProps['current']; label: string; icon: JSX.Element }> = [
-  { key: 'profiles', label: 'Profiles', icon: <Globe2 size={18} /> },
-  { key: 'proxies', label: 'Proxies', icon: <Network size={18} /> },
-  { key: 'settings', label: 'Settings', icon: <SettingsIcon size={18} /> },
-];
 
 export function Sidebar({ current, onNavigate }: SidebarProps): JSX.Element {
   const profilesCount = useApp((s) => s.profiles.length);
   const runningCount = useApp((s) => s.profiles.filter((p) => p.status === 'running').length);
   const proxyCount = useApp((s) => s.proxies.length);
+  const t = useT();
+
+  const items: Array<{ key: Page; label: string; icon: JSX.Element }> = [
+    { key: 'profiles', label: t('sidebar.profiles'), icon: <Globe2 size={18} /> },
+    { key: 'proxies', label: t('sidebar.proxies'), icon: <Network size={18} /> },
+    { key: 'automation', label: t('sidebar.automation'), icon: <Zap size={18} /> },
+    { key: 'settings', label: t('sidebar.settings'), icon: <SettingsIcon size={18} /> },
+  ];
 
   return (
     <aside className="w-56 shrink-0 border-r border-border bg-bg-surface flex flex-col">
@@ -60,11 +65,11 @@ export function Sidebar({ current, onNavigate }: SidebarProps): JSX.Element {
 
       <div className="p-3 border-t border-border text-xs text-text-dim">
         <div className="flex items-center justify-between">
-          <span>Running</span>
+          <span>{t('sidebar.running')}</span>
           <span className="text-success font-medium">{runningCount}</span>
         </div>
         <div className="mt-1 flex items-center justify-between">
-          <span>Total</span>
+          <span>{t('sidebar.total')}</span>
           <span>{profilesCount}</span>
         </div>
       </div>

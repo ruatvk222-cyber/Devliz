@@ -61,7 +61,9 @@ export function getProfile(id: string): Profile | null {
 export function createProfile(input: Partial<Profile>): Profile {
   const id = input.id ?? nanoid(12);
   const now = Date.now();
-  const fingerprint = input.fingerprint ?? generateFingerprint();
+  const settings = getSettings();
+  const localeMode: 'en-US' | 'random' = settings.forceEnUsLocale ? 'en-US' : 'random';
+  const fingerprint = input.fingerprint ?? generateFingerprint({ localeMode });
   const dataDir = input.dataDir ?? join(profilesRoot(), id);
   mkdirSync(dataDir, { recursive: true });
 
@@ -113,11 +115,14 @@ export function bulkCreateProfiles(options: BulkCreateOptions): Profile[] {
   const created: Profile[] = [];
   const proxyIds = options.proxyIds ?? [];
 
+  const settings = getSettings();
+  const localeMode: 'en-US' | 'random' = settings.forceEnUsLocale ? 'en-US' : 'random';
+
   const tx = getDb().transaction(() => {
     for (let i = 0; i < count; i++) {
       const proxyId = proxyIds.length > 0 ? proxyIds[i % proxyIds.length] : undefined;
       const osChoice = options.osMix && options.osMix.length > 0 ? options.osMix[i % options.osMix.length] : undefined;
-      const fingerprint = generateFingerprint(osChoice);
+      const fingerprint = generateFingerprint({ os: osChoice, localeMode });
       const profile = createProfile({
         name: `${options.namePrefix} ${i + 1}`,
         group: options.group,
