@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import type { Profile } from '@shared/types';
+import { useEffect, useMemo, useState } from 'react';
+import type { Profile, ProxyCheckResult } from '@shared/types';
 import { Drawer } from './Drawer';
 import { useApp } from '../store';
 
@@ -20,6 +20,8 @@ export function EditProfileDrawer({ open, onClose, profile }: Props): JSX.Elemen
   const [startUrl, setStartUrl] = useState('');
   const [proxyId, setProxyId] = useState<string>('');
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<ProxyCheckResult | null>(null);
 
   useEffect(() => {
     if (profile) {
@@ -29,8 +31,14 @@ export function EditProfileDrawer({ open, onClose, profile }: Props): JSX.Elemen
       setNotes(profile.notes ?? '');
       setStartUrl(profile.startUrl ?? '');
       setProxyId(profile.proxyId ?? '');
+      setTestResult(null);
     }
   }, [profile]);
+
+  const selectedProxy = useMemo(
+    () => proxies.find((p) => p.id === proxyId) ?? null,
+    [proxies, proxyId],
+  );
 
   if (!profile) return null;
 
@@ -92,18 +100,72 @@ export function EditProfileDrawer({ open, onClose, profile }: Props): JSX.Elemen
         </div>
         <div>
           <label className="label">Proxy</label>
-          <select
-            className="input"
-            value={proxyId}
-            onChange={(e) => setProxyId(e.target.value)}
-          >
-            <option value="">— No proxy —</option>
-            {proxies.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label ?? `${p.type}://${p.host}:${p.port}`} {p.lastCountry ? `(${p.lastCountry})` : ''}
-              </option>
-            ))}
-          </select>
+          <div className="flex gap-2">
+            <select
+              className="input flex-1"
+              value={proxyId}
+              onChange={(e) => {
+                setProxyId(e.target.value);
+                setTestResult(null);
+              }}
+            >
+              <option value="">— No proxy —</option>
+              {proxies.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label ?? `${p.type}://${p.host}:${p.port}`}{' '}
+                  {p.lastCountry ? `(${p.lastCountry})` : ''}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={!proxyId || testing}
+              onClick={async () => {
+                if (!proxyId) return;
+                setTesting(true);
+                setTestResult(null);
+                try {
+                  const [r] = await window.api.proxies.check([proxyId]);
+                  setTestResult(r ?? null);
+                  await refresh();
+                } finally {
+                  setTesting(false);
+                }
+              }}
+            >
+              {testing ? 'Testing…' : 'Test'}
+            </button>
+          </div>
+          {selectedProxy && (
+            <div className="mt-2 text-xs text-text-dim font-mono">
+              {selectedProxy.type}://{selectedProxy.host}:{selectedProxy.port}
+              {selectedProxy.username ? ' · auth' : ''}
+              {selectedProxy.lastIp ? ` · last IP ${selectedProxy.lastIp}` : ''}
+              {selectedProxy.status
+                ? ` · status ${selectedProxy.status}`
+                : ''}
+            </div>
+          )}
+          {testResult && (
+            <div
+              className={`mt-2 text-xs px-2 py-1.5 rounded border ${
+                testResult.ok
+                  ? 'text-success bg-success/10 border-success/30'
+                  : 'text-danger bg-danger/10 border-danger/30'
+              }`}
+            >
+              {testResult.ok
+                ? `Live · IP ${testResult.ip ?? '?'}${
+                    testResult.country ? ` (${testResult.country})` : ''
+                  }${
+                    testResult.latencyMs !== undefined
+                      ? ` · ${testResult.latencyMs} ms`
+                      : ''
+                  }`
+                : `Dead · ${testResult.error ?? 'unknown error'}`}
+            </div>
+          )}
         </div>
         <div>
           <label className="label">Notes</label>
