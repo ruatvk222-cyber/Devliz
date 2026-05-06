@@ -1,0 +1,76 @@
+name: Release Windows .exe
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows installer
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+        env:
+          # electron-builder install-app-deps in postinstall handles native rebuilds
+          npm_config_build_from_source: 'false'
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build (electron-vite + electron-builder NSIS)
+        run: npm run build:win
+        env:
+          # Skip code-signing on CI (no certs configured); installer is unsigned
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          # Avoid GitHub auto-publish; we attach to release in a later step
+          GH_TOKEN: ''
+
+      - name: List release artifacts
+        shell: pwsh
+        run: |
+          Get-ChildItem -Path release -Recurse -File |
+            Where-Object { $_.Extension -in '.exe', '.blockmap', '.yml' } |
+            Select-Object FullName, Length |
+            Format-Table -AutoSize
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Devliz-Windows-x64
+          path: |
+            release/*.exe
+            release/*.blockmap
+            release/latest.yml
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Create GitHub Release (tag push only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            release/*.exe
+            release/*.blockmap
+            release/latest.yml
