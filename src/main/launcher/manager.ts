@@ -7,11 +7,13 @@ import { getProxy } from '../repositories/proxies';
 import { getSettings } from '../repositories/settings';
 import { detectChromePath } from './chrome-path';
 import { writeFingerprintExtension } from './extension';
+import { authProxyApplies, startAuthProxy, type AuthProxyHandle } from './auth-proxy';
 
 interface RunningProfile {
   pid: number;
   child: ChildProcess;
   remoteDebugPort: number;
+  authProxy?: AuthProxyHandle;
 }
 
 const running = new Map<string, RunningProfile>();
@@ -34,9 +36,21 @@ function pickPort(): number {
   return port;
 }
 
-function buildProxyArg(proxy: ProxyConfig | null): string | null {
+function buildProxyArg(proxy: ProxyConfig | null, authBridgePort: number | null): string | null {
   if (!proxy || proxy.type === 'none') return null;
+  // For HTTP/HTTPS upstreams that need auth, point Chrome at the local auth
+  // bridge instead of the upstream directly. Chrome strips inline credentials
+  // from --proxy-server URLs for http(s) and would prompt the user otherwise.
+  if (authBridgePort !== null) {
+    return `http://127.0.0.1:${authBridgePort}`;
+  }
   const scheme = proxy.type === 'http' ? 'http' : proxy.type;
+  // SOCKS supports inline credentials in the proxy URL (Chrome handles auth).
+  if (proxy.username && (proxy.type === 'socks4' || proxy.type === 'socks5')) {
+    const u = encodeURIComponent(proxy.username);
+    const p = encodeURIComponent(proxy.password ?? '');
+    return `${scheme}://${u}:${p}@${proxy.host}:${proxy.port}`;
+  }
   return `${scheme}://${proxy.host}:${proxy.port}`;
 }
 
@@ -73,10 +87,32 @@ export async function launchProfile(profileId: string): Promise<LauncherStatus> 
   updateStatus(profileId, 'launching');
 
   const proxy = profile.proxyId ? getProxy(profile.proxyId) : null;
-  const proxyArg = buildProxyArg(proxy);
+
+  // For authenticated HTTP/HTTPS proxies, start a local bridge so Chrome
+  // doesn't pop the auth dialog. SOCKS upstreams handle auth in the URL.
+  let authProxy: AuthProxyHandle | undefined;
+  if (authProxyApplies(proxy)) {
+    try {
+      authProxy = await startAuthProxy(proxy as ProxyConfig);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const e: LauncherStatus = {
+        profileId,
+        status: 'error',
+        error: `Failed to start proxy auth bridge: ${msg}`,
+      };
+      setProfileStatus(profileId, 'error');
+      emit(e);
+      return e;
+    }
+  }
+
+  const proxyArg = buildProxyArg(proxy, authProxy ? authProxy.port : null);
 
   const extDir = writeFingerprintExtension(profile.dataDir, {
     fingerprint: profile.fingerprint,
+    // The auth bridge handles credentials transparently. We still keep the
+    // extension-side onAuthRequired handler as a defense-in-depth fallback.
     proxyAuth:
       proxy && proxy.username
         ? { username: proxy.username, password: proxy.password ?? '' }
@@ -124,20 +160,25 @@ export async function launchProfile(profileId: string): Promise<LauncherStatus> 
   });
 
   if (!child.pid) {
+    if (authProxy) await authProxy.close().catch(() => undefined);
     const err: LauncherStatus = { profileId, status: 'error', error: 'Failed to spawn browser process.' };
     setProfileStatus(profileId, 'error');
     emit(err);
     return err;
   }
 
-  running.set(profileId, { pid: child.pid, child, remoteDebugPort: debugPort });
+  running.set(profileId, { pid: child.pid, child, remoteDebugPort: debugPort, authProxy });
 
   child.once('exit', () => {
+    const r = running.get(profileId);
+    if (r?.authProxy) void r.authProxy.close().catch(() => undefined);
     running.delete(profileId);
     updateStatus(profileId, 'idle');
   });
 
   child.once('error', (err) => {
+    const r = running.get(profileId);
+    if (r?.authProxy) void r.authProxy.close().catch(() => undefined);
     running.delete(profileId);
     setProfileStatus(profileId, 'error');
     emit({ profileId, status: 'error', error: err.message });
@@ -192,6 +233,7 @@ export function stopAllProfiles(): void {
     } catch {
       /* ignore */
     }
+    if (r.authProxy) void r.authProxy.close().catch(() => undefined);
     setProfileStatus(id, 'idle');
   }
   running.clear();

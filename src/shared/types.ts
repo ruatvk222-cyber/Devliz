@@ -124,7 +124,7 @@ export interface AppSettings {
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   maxConcurrentLaunches: 5,
-  defaultStartUrl: 'https://abrahamjuliot.github.io/creepjs/',
+  defaultStartUrl: 'https://www.google.com/',
 };
 
 export interface IpcApi {
