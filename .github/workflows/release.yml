@@ -60,7 +60,6 @@ jobs:
           path: |
             release/*.exe
             release/*.blockmap
-            release/latest.yml
           if-no-files-found: error
           retention-days: 30
 
@@ -73,4 +72,3 @@ jobs:
           files: |
             release/*.exe
             release/*.blockmap
-            release/latest.yml
