@@ -1,0 +1,32 @@
+appId: com.devliz.app
+productName: Devliz
+directories:
+  output: release
+  buildResources: resources
+files:
+  - out
+  - resources
+  - package.json
+asar: true
+asarUnpack:
+  - "**/node_modules/better-sqlite3/**/*"
+  - "resources/**/*"
+extraResources:
+  - from: resources/extension
+    to: extension
+    filter:
+      - "**/*"
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: ${productName}-Setup-${version}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Devliz
+publish: null
