@@ -114,15 +114,36 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('extensions.list', (): UserExtension[] => listExtensions());
   ipcMain.handle(
     'extensions.addFromFolder',
-    (_e, input: AddExtensionFolderInput): UserExtension => installFromFolder(input),
+    (_e, input: AddExtensionFolderInput): UserExtension => {
+      try {
+        return installFromFolder(input);
+      } catch (err) {
+        console.error('[extensions.addFromFolder] failed:', err);
+        throw err;
+      }
+    },
   );
   ipcMain.handle(
     'extensions.addFromZip',
-    (_e, input: AddExtensionZipInput): UserExtension => installFromZip(input),
+    (_e, input: AddExtensionZipInput): UserExtension => {
+      try {
+        return installFromZip(input);
+      } catch (err) {
+        console.error('[extensions.addFromZip] failed:', err);
+        throw err;
+      }
+    },
   );
   ipcMain.handle(
     'extensions.addFromStore',
-    (_e, input: AddExtensionStoreInput): Promise<UserExtension> => installFromStore(input),
+    async (_e, input: AddExtensionStoreInput): Promise<UserExtension> => {
+      try {
+        return await installFromStore(input);
+      } catch (err) {
+        console.error('[extensions.addFromStore] failed:', err);
+        throw err;
+      }
+    },
   );
   ipcMain.handle('extensions.delete', (_e, id: string): void => deleteExtension(id));
   ipcMain.handle(
