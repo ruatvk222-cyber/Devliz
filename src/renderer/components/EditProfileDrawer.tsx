@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { Profile, ProxyCheckResult } from '@shared/types';
+import type { Profile, ProxyCheckResult, UserExtension } from '@shared/types';
 import { Drawer } from './Drawer';
 import { useApp } from '../store';
 
@@ -23,6 +23,7 @@ export function EditProfileDrawer({ open, onClose, profile }: Props): JSX.Elemen
   const [saveError, setSaveError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<ProxyCheckResult | null>(null);
+  const [attachedExts, setAttachedExts] = useState<UserExtension[]>([]);
 
   // Re-seed the form whenever the drawer is opened against a different
   // profile. We key off `profile.id` (and `open`) rather than the object
@@ -38,8 +39,19 @@ export function EditProfileDrawer({ open, onClose, profile }: Props): JSX.Elemen
       setProxyId(profile.proxyId ?? '');
       setTestResult(null);
       setSaveError(null);
+      void window.api.extensions
+        .forProfile(profile.id)
+        .then(setAttachedExts)
+        .catch(() => setAttachedExts([]));
     }
   }, [open, profile?.id, profile]);
+
+  async function detachExtension(extensionId: string): Promise<void> {
+    if (!profile) return;
+    await window.api.extensions.detach(extensionId, [profile.id]);
+    const rows = await window.api.extensions.forProfile(profile.id);
+    setAttachedExts(rows);
+  }
 
   const selectedProxy = useMemo(
     () => proxies.find((p) => p.id === proxyId) ?? null,
@@ -252,6 +264,42 @@ export function EditProfileDrawer({ open, onClose, profile }: Props): JSX.Elemen
               <span className="text-right">{fp.webrtcMask ? 'yes' : 'no'}</span>
             </div>
           </div>
+        </div>
+
+        <div>
+          <h3 className="text-sm font-semibold mb-2 text-text-muted">
+            Attached extensions ({attachedExts.length})
+          </h3>
+          {attachedExts.length === 0 ? (
+            <div className="card p-3 text-xs text-text-dim">
+              No user extensions attached. Tick this profile in the list and
+              click <span className="font-semibold">Add extension</span> to
+              attach one.
+            </div>
+          ) : (
+            <div className="card p-2 space-y-1">
+              {attachedExts.map((e) => (
+                <div
+                  key={e.id}
+                  className="flex items-center justify-between gap-2 px-2 py-1.5 rounded hover:bg-bg-hover text-xs"
+                >
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">{e.name}</div>
+                    <div className="text-text-dim font-mono text-[10px] truncate">
+                      {e.source} · {e.extDir}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-secondary text-xs px-2 py-1"
+                    onClick={() => void detachExtension(e.id)}
+                  >
+                    Detach
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div>

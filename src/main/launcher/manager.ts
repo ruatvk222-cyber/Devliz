@@ -279,18 +279,19 @@ export async function launchProfile(
     '--no-default-browser-check',
     '--no-first-run',
     '--disable-features=Translate,IsolateOrigins,site-per-process',
-    '--disable-blink-features=AutomationControlled',
     `--device-scale-factor=${fp.deviceScaleFactor}`,
   ];
 
-  // Only emit --load-extension and the matching --disable-extensions-except
-  // if we actually have something to load. With an empty list,
-  // `--disable-extensions-except=` (empty value) tells Chrome to disable
-  // every extension except none — which is what we want, but some Chrome
-  // versions parse the empty string oddly, so just skip both flags.
+  // Just `--load-extension` — no `--disable-extensions-except`.
+  // We rely on `--user-data-dir` to fully isolate this profile, so there are
+  // no other extensions to disable on a fresh datadir. We previously emitted
+  // `--disable-extensions-except=<same paths>` to be explicit, but on Chrome
+  // 124+ that combination causes Chrome to load the extension successfully
+  // (toast "Extension loaded" appears) yet hide it from chrome://extensions
+  // — likely because of a path-normalisation mismatch on Windows. Removing
+  // the flag restores normal display.
   if (loadList.length > 0) {
     args.push(`--load-extension=${loadList}`);
-    args.push(`--disable-extensions-except=${loadList}`);
   }
 
   if (fp.webrtcMask) {
