@@ -28,6 +28,7 @@ const api: IpcApi = {
     create: (input) => ipcRenderer.invoke('proxies.create', input) as Promise<ProxyConfig>,
     update: (id, patch) => ipcRenderer.invoke('proxies.update', id, patch) as Promise<ProxyConfig>,
     delete: (id) => ipcRenderer.invoke('proxies.delete', id) as Promise<void>,
+    deleteMany: (ids) => ipcRenderer.invoke('proxies.deleteMany', ids) as Promise<void>,
     importBulk: (options: ProxyImportOptions) =>
       ipcRenderer.invoke('proxies.importBulk', options) as Promise<ProxyConfig[]>,
     check: (ids) => ipcRenderer.invoke('proxies.check', ids) as Promise<ProxyCheckResult[]>,

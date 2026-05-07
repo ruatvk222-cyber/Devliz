@@ -105,6 +105,15 @@ export function deleteProxy(id: string): void {
   getDb().prepare('DELETE FROM proxies WHERE id = ?').run(id);
 }
 
+export function deleteProxies(ids: string[]): void {
+  if (ids.length === 0) return;
+  const stmt = getDb().prepare('DELETE FROM proxies WHERE id = ?');
+  const tx = getDb().transaction((batch: string[]) => {
+    for (const id of batch) stmt.run(id);
+  });
+  tx(ids);
+}
+
 /**
  * Parse a single proxy line. Supports:
  * - ip:port

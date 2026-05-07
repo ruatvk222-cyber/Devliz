@@ -7,6 +7,7 @@ interface AppState {
   proxies: ProxyConfig[];
   settings: AppSettings;
   selectedProfileIds: string[];
+  selectedProxyIds: string[];
   search: string;
   groupFilter: string;
   loading: boolean;
@@ -19,6 +20,9 @@ interface AppState {
   setSelected(ids: string[]): void;
   toggleSelected(id: string): void;
   clearSelection(): void;
+  setSelectedProxies(ids: string[]): void;
+  toggleSelectedProxy(id: string): void;
+  clearProxySelection(): void;
   applyLauncherStatus(s: LauncherStatus): void;
   setLoading(b: boolean): void;
   refresh(): Promise<void>;
@@ -29,6 +33,7 @@ export const useApp = create<AppState>((set, get) => ({
   proxies: [],
   settings: DEFAULT_APP_SETTINGS,
   selectedProfileIds: [],
+  selectedProxyIds: [],
   search: '',
   groupFilter: '',
   loading: false,
@@ -46,6 +51,14 @@ export const useApp = create<AppState>((set, get) => ({
         : [...s.selectedProfileIds, id],
     })),
   clearSelection: () => set({ selectedProfileIds: [] }),
+  setSelectedProxies: (selectedProxyIds) => set({ selectedProxyIds }),
+  toggleSelectedProxy: (id) =>
+    set((s) => ({
+      selectedProxyIds: s.selectedProxyIds.includes(id)
+        ? s.selectedProxyIds.filter((x) => x !== id)
+        : [...s.selectedProxyIds, id],
+    })),
+  clearProxySelection: () => set({ selectedProxyIds: [] }),
   applyLauncherStatus: (status) =>
     set((s) => ({
       profiles: s.profiles.map((p) =>
