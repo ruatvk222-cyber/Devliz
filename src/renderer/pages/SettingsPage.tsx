@@ -1,6 +1,15 @@
 import { useEffect, useState } from 'react';
-import { Moon, Save, Search, Settings as SettingsIcon, Sun } from 'lucide-react';
-import type { AppLanguage, AppTheme } from '@shared/types';
+import {
+  FileText,
+  FolderOpen,
+  Moon,
+  RefreshCw,
+  Save,
+  Search,
+  Settings as SettingsIcon,
+  Sun,
+} from 'lucide-react';
+import type { AppLanguage, AppTheme, LaunchLogEntry } from '@shared/types';
 import { useApp } from '../store';
 import { useT } from '../i18n';
 
@@ -20,6 +29,31 @@ export function SettingsPage(): JSX.Element {
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
 
+  // Launch logs (diagnostics)
+  const [logs, setLogs] = useState<LaunchLogEntry[]>([]);
+  const [logBody, setLogBody] = useState<string | null>(null);
+  const [logName, setLogName] = useState<string | null>(null);
+
+  async function refreshLogs(): Promise<void> {
+    try {
+      const list = await window.api.logs.list();
+      setLogs(list);
+    } catch {
+      setLogs([]);
+    }
+  }
+
+  async function viewLog(name: string): Promise<void> {
+    setLogName(name);
+    setLogBody('Loading…');
+    try {
+      const body = await window.api.logs.read(name);
+      setLogBody(body ?? '(empty)');
+    } catch (err) {
+      setLogBody(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   useEffect(() => {
     setChromePath(settings.chromePath ?? '');
     setMaxConcurrent(settings.maxConcurrentLaunches);
@@ -29,6 +63,10 @@ export function SettingsPage(): JSX.Element {
     setTheme(settings.theme);
     setForceEnUsLocale(settings.forceEnUsLocale);
   }, [settings]);
+
+  useEffect(() => {
+    void refreshLogs();
+  }, []);
 
   // Live-preview theme + language without a full save round-trip.
   function applyTheme(next: AppTheme): void {
@@ -190,6 +228,74 @@ export function SettingsPage(): JSX.Element {
                 />
               </div>
             </div>
+          </div>
+
+          {/* ---- Diagnostics ---- */}
+          <div className="card p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-semibold">{t('settings.diagnosticsHeader')}</h2>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={refreshLogs}
+                  title={t('settings.diagnosticsRefresh')}
+                >
+                  <RefreshCw size={14} />
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => void window.api.logs.openFolder()}
+                >
+                  <FolderOpen size={14} /> {t('settings.diagnosticsOpenFolder')}
+                </button>
+              </div>
+            </div>
+            <p className="text-xs text-text-dim mb-3">
+              {t('settings.diagnosticsHelp')}
+            </p>
+            {logs.length === 0 ? (
+              <p className="text-sm text-text-muted">{t('settings.diagnosticsEmpty')}</p>
+            ) : (
+              <div className="border border-border rounded-md max-h-48 overflow-auto">
+                {logs.map((l) => (
+                  <button
+                    type="button"
+                    key={l.path}
+                    className={`w-full flex items-center gap-2 px-3 py-2 text-left text-xs font-mono border-b border-border last:border-b-0 hover:bg-bg-hover ${
+                      logName === l.name ? 'bg-bg-hover' : ''
+                    }`}
+                    onClick={() => void viewLog(l.name)}
+                  >
+                    <FileText size={12} className="text-text-muted shrink-0" />
+                    <span className="flex-1 truncate">{l.name}</span>
+                    <span className="text-text-dim shrink-0">
+                      {(l.size / 1024).toFixed(1)} KB · {new Date(l.mtime).toLocaleString()}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {logBody !== null && (
+              <div className="mt-3">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="label mb-0">{logName}</label>
+                  <button
+                    type="button"
+                    className="btn-secondary text-xs"
+                    onClick={() => {
+                      if (logBody) void navigator.clipboard.writeText(logBody);
+                    }}
+                  >
+                    {t('settings.diagnosticsCopy')}
+                  </button>
+                </div>
+                <pre className="bg-bg-deep border border-border rounded-md p-3 text-xs font-mono overflow-auto max-h-72 whitespace-pre-wrap break-all">
+                  {logBody}
+                </pre>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-3">

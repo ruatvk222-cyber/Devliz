@@ -249,6 +249,18 @@ export interface IpcApi {
     onLauncherStatus(callback: (status: LauncherStatus) => void): () => void;
     onProxyCheckProgress(callback: (result: ProxyCheckResult) => void): () => void;
   };
+  logs: {
+    list(): Promise<LaunchLogEntry[]>;
+    read(name: string): Promise<string | null>;
+    openFolder(): Promise<void>;
+  };
+}
+
+export interface LaunchLogEntry {
+  name: string;
+  path: string;
+  mtime: number;
+  size: number;
 }
 
 declare global {

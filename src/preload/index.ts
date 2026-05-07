@@ -7,6 +7,7 @@ import type {
   AutomationConfig,
   BulkCreateOptions,
   IpcApi,
+  LaunchLogEntry,
   LauncherStatus,
   Profile,
   ProxyCheckResult,
@@ -82,6 +83,11 @@ const api: IpcApi = {
       ipcRenderer.on('proxy.check.progress', listener);
       return () => ipcRenderer.off('proxy.check.progress', listener);
     },
+  },
+  logs: {
+    list: () => ipcRenderer.invoke('logs.list') as Promise<LaunchLogEntry[]>,
+    read: (name: string) => ipcRenderer.invoke('logs.read', name) as Promise<string | null>,
+    openFolder: () => ipcRenderer.invoke('logs.openFolder') as Promise<void>,
   },
 };
 

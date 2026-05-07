@@ -69,6 +69,13 @@ const en: Dict = {
   'settings.save': 'Save settings',
   'settings.saving': 'Saving…',
   'settings.savedAt': 'Saved at',
+  'settings.diagnosticsHeader': 'Launch diagnostics',
+  'settings.diagnosticsHelp':
+    'Every time you launch a profile we write a log with the chrome path, all spawn arguments, exit code, and any browser stderr. If extensions or proxies misbehave, click the most recent log and paste it to support.',
+  'settings.diagnosticsEmpty': 'No launch logs yet. Launch a profile and they will show up here.',
+  'settings.diagnosticsRefresh': 'Refresh',
+  'settings.diagnosticsOpenFolder': 'Open logs folder',
+  'settings.diagnosticsCopy': 'Copy',
 
   'automation.title': 'Automation',
   'automation.subtitle':
@@ -188,6 +195,13 @@ const vi: Dict = {
   'settings.save': 'Lưu cài đặt',
   'settings.saving': 'Đang lưu…',
   'settings.savedAt': 'Đã lưu lúc',
+  'settings.diagnosticsHeader': 'Nhật ký khởi chạy',
+  'settings.diagnosticsHelp':
+    'Mỗi lần launch profile, app ghi 1 file log gồm path Chrome, đầy đủ tham số spawn, exit code và stderr của trình duyệt. Nếu extension/proxy gặp vấn đề, click vào log mới nhất, copy nội dung và gửi cho support.',
+  'settings.diagnosticsEmpty': 'Chưa có log nào. Hãy launch 1 profile, log sẽ xuất hiện ở đây.',
+  'settings.diagnosticsRefresh': 'Tải lại',
+  'settings.diagnosticsOpenFolder': 'Mở thư mục log',
+  'settings.diagnosticsCopy': 'Copy',
 
   'automation.title': 'Tự động',
   'automation.subtitle':
