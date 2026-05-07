@@ -77,19 +77,34 @@ export function installFromFolder(input: AddExtensionFolderInput): UserExtension
 
 export function installFromZip(input: AddExtensionZipInput): UserExtension {
   if (!existsSync(input.zipPath)) {
-    throw new Error(`Zip not found: ${input.zipPath}`);
+    throw new Error(`File not found: ${input.zipPath}`);
   }
   const id = nanoid(12);
   const dest = join(extensionsBaseDir(), id);
   mkdirSync(dest, { recursive: true });
 
   try {
-    const zip = new AdmZip(input.zipPath);
-    zip.extractAllTo(dest, true);
+    // Auto-detect CRX vs ZIP — some users hand us a .crx file (e.g. one
+    // they downloaded from the Chrome Web Store but Chrome refused to
+    // install). adm-zip can't read CRX directly, but the inner ZIP starts
+    // right after the CRX header.
+    const raw = readFileSync(input.zipPath);
+    const zipBuf = stripCrxHeader(raw);
+    if (zipBuf.length === 0 || zipBuf.slice(0, 4).toString('hex') !== '504b0304') {
+      // Not a ZIP local-file-header. Try adm-zip directly anyway so it
+      // surfaces a more useful error if the file is something else.
+      const zip = new AdmZip(input.zipPath);
+      zip.extractAllTo(dest, true);
+    } else {
+      const zip = new AdmZip(zipBuf);
+      zip.extractAllTo(dest, true);
+    }
   } catch (err) {
     rmSync(dest, { recursive: true, force: true });
     throw new Error(
-      `Failed to extract zip: ${err instanceof Error ? err.message : String(err)}`,
+      `Failed to extract '${basename(input.zipPath)}': ${
+        err instanceof Error ? err.message : String(err)
+      }. Make sure the file is a valid .zip or .crx of an unpacked extension.`,
     );
   }
 
@@ -114,8 +129,9 @@ export function installFromZip(input: AddExtensionZipInput): UserExtension {
     id,
     name:
       input.name?.trim() ||
+      resolveLocalizedName(dest) ||
       readManifestName(dest) ||
-      basename(input.zipPath, '.zip'),
+      basename(input.zipPath).replace(/\.(zip|crx)$/i, ''),
     source: 'zip',
     sourceRef: input.zipPath,
     extDir: dest,
