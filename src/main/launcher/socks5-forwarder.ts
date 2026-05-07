@@ -78,211 +78,323 @@ export async function startSocks5Forwarder(
   };
 }
 
+/**
+ * Stateful reader: consumes exactly N bytes from a socket, buffering any
+ * extra bytes that came in the same TCP chunk so the next read picks them
+ * up. Without this you lose the tail end of a multi-field SOCKS5 reply
+ * (the dial would hang waiting for bytes that already arrived).
+ */
+class SocketReader {
+  private buf = Buffer.alloc(0);
+  private want: { n: number; resolve(b: Buffer): void; reject(e: Error): void } | null = null;
+  private err: Error | null = null;
+  private ended = false;
+  private readonly onData = (chunk: Buffer): void => {
+    this.buf = Buffer.concat([this.buf, chunk]);
+    this.tryFulfil();
+  };
+  private readonly onError = (err: Error): void => {
+    this.err = err;
+    if (this.want) {
+      const w = this.want;
+      this.want = null;
+      w.reject(err);
+    }
+  };
+  private readonly onEnd = (): void => {
+    this.ended = true;
+    if (this.want && this.buf.length < this.want.n) {
+      const w = this.want;
+      this.want = null;
+      w.reject(new Error('socket closed before all bytes read'));
+    }
+  };
+
+  constructor(private readonly sock: Socket) {
+    sock.on('data', this.onData);
+    sock.on('error', this.onError);
+    sock.on('end', this.onEnd);
+  }
+
+  read(n: number): Promise<Buffer> {
+    if (this.err) return Promise.reject(this.err);
+    if (this.want) return Promise.reject(new Error('SocketReader: concurrent read'));
+    if (this.buf.length >= n) {
+      const out = this.buf.subarray(0, n);
+      this.buf = this.buf.subarray(n);
+      return Promise.resolve(Buffer.from(out));
+    }
+    if (this.ended) return Promise.reject(new Error('socket closed before all bytes read'));
+    return new Promise<Buffer>((resolve, reject) => {
+      this.want = { n, resolve, reject };
+    });
+  }
+
+  /**
+   * Detach the reader from the socket and return any bytes that were
+   * already buffered but not yet consumed. The caller is now responsible
+   * for the socket's data flow (typically via `pipe`).
+   */
+  detach(): Buffer {
+    this.sock.removeListener('data', this.onData);
+    this.sock.removeListener('error', this.onError);
+    this.sock.removeListener('end', this.onEnd);
+    const tail = this.buf;
+    this.buf = Buffer.alloc(0);
+    return tail;
+  }
+
+  private tryFulfil(): void {
+    if (!this.want) return;
+    if (this.buf.length < this.want.n) return;
+    const w = this.want;
+    this.want = null;
+    const out = this.buf.subarray(0, w.n);
+    this.buf = this.buf.subarray(w.n);
+    w.resolve(Buffer.from(out));
+  }
+}
+
 async function handleClient(client: Socket, upstream: ProxyConfig): Promise<void> {
   client.on('error', () => {
     /* swallow */
   });
 
-  // 1) Greeting from Chrome: VER NMETHODS METHODS...
-  const greet = await readBytesAtLeast(client, 2);
-  if (greet[0] !== 0x05) {
-    client.destroy();
-    return;
-  }
-  const nmethods = greet[1] ?? 0;
-  await readBytesAtLeast(client, 2 + nmethods, greet);
-  // We accept any client; reply with NO AUTH (0x00). Chrome will only ever
-  // send 0x00 to a 127.0.0.1 SOCKS5 endpoint anyway.
-  client.write(Buffer.from([0x05, 0x00]));
+  const cr = new SocketReader(client);
+  let upSock: Socket | undefined;
+  let upTail: Buffer = Buffer.alloc(0);
 
-  // 2) Connect request: VER CMD RSV ATYP DST.ADDR DST.PORT
-  let req = await readBytesAtLeast(client, 4);
-  if (req[0] !== 0x05 || req[1] !== 0x01) {
-    // Not a CONNECT — reply "command not supported" (0x07).
-    client.end(
-      Buffer.from([0x05, 0x07, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
-    );
-    return;
-  }
-  const atyp = req[3];
-  let needed: number;
-  if (atyp === 0x01) {
-    needed = 4 + 4 + 2; // VER+CMD+RSV+ATYP + IPv4 + PORT
-  } else if (atyp === 0x03) {
-    if (req.length < 5) req = await readBytesAtLeast(client, 5, req);
-    const dlen = req[4] ?? 0;
-    needed = 4 + 1 + dlen + 2;
-  } else if (atyp === 0x04) {
-    needed = 4 + 16 + 2;
-  } else {
-    client.end(
-      Buffer.from([0x05, 0x08, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
-    );
-    return;
-  }
-  if (req.length < needed) req = await readBytesAtLeast(client, needed, req);
-
-  let host: string;
-  let port: number;
-  if (atyp === 0x01) {
-    host = `${req[4]}.${req[5]}.${req[6]}.${req[7]}`;
-    port = ((req[8] ?? 0) << 8) | (req[9] ?? 0);
-  } else if (atyp === 0x03) {
-    const dlen = req[4] ?? 0;
-    host = req.slice(5, 5 + dlen).toString('ascii');
-    const po = 5 + dlen;
-    port = ((req[po] ?? 0) << 8) | (req[po + 1] ?? 0);
-  } else {
-    // IPv6
-    const parts: string[] = [];
-    for (let i = 0; i < 16; i += 2) {
-      parts.push(
-        (((req[4 + i] ?? 0) << 8) | (req[5 + i] ?? 0))
-          .toString(16),
-      );
-    }
-    host = parts.join(':');
-    port = ((req[20] ?? 0) << 8) | (req[21] ?? 0);
-  }
-
-  // 3) Dial upstream SOCKS5 with user/pass auth.
-  let upSock: Socket;
   try {
-    upSock = await dialUpstream(upstream, host, port);
-  } catch {
-    // 0x01 general SOCKS server failure.
-    try {
+    // 1) Greeting from Chrome: VER NMETHODS METHODS...
+    const greetHead = await cr.read(2);
+    if (greetHead[0] !== 0x05) {
+      cr.detach();
+      client.destroy();
+      return;
+    }
+    const nmethods = greetHead[1] ?? 0;
+    if (nmethods > 0) await cr.read(nmethods);
+    // We accept any client with NO AUTH (0x00). Chrome only ever sends 0x00
+    // to a 127.0.0.1 SOCKS5 endpoint anyway.
+    client.write(Buffer.from([0x05, 0x00]));
+
+    // 2) Connect request: VER CMD RSV ATYP ...
+    const reqHead = await cr.read(4);
+    if (reqHead[0] !== 0x05 || reqHead[1] !== 0x01) {
+      // Not a CONNECT — reply "command not supported" (0x07).
       client.end(
-        Buffer.from([0x05, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
+        Buffer.from([0x05, 0x07, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
       );
+      cr.detach();
+      return;
+    }
+    const atyp = reqHead[3];
+    let host: string;
+    let port: number;
+    if (atyp === 0x01) {
+      const v4 = await cr.read(4);
+      const portBuf = await cr.read(2);
+      host = `${v4[0]}.${v4[1]}.${v4[2]}.${v4[3]}`;
+      port = ((portBuf[0] ?? 0) << 8) | (portBuf[1] ?? 0);
+    } else if (atyp === 0x03) {
+      const lenBuf = await cr.read(1);
+      const dlen = lenBuf[0] ?? 0;
+      const hostBuf = await cr.read(dlen);
+      const portBuf = await cr.read(2);
+      host = hostBuf.toString('ascii');
+      port = ((portBuf[0] ?? 0) << 8) | (portBuf[1] ?? 0);
+    } else if (atyp === 0x04) {
+      const v6 = await cr.read(16);
+      const portBuf = await cr.read(2);
+      const parts: string[] = [];
+      for (let i = 0; i < 16; i += 2) {
+        parts.push((((v6[i] ?? 0) << 8) | (v6[i + 1] ?? 0)).toString(16));
+      }
+      host = parts.join(':');
+      port = ((portBuf[0] ?? 0) << 8) | (portBuf[1] ?? 0);
+    } else {
+      client.end(
+        Buffer.from([0x05, 0x08, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
+      );
+      cr.detach();
+      return;
+    }
+
+    // 3) Dial upstream SOCKS5 with user/pass auth.
+    try {
+      const dialed = await dialUpstream(upstream, host, port);
+      upSock = dialed.sock;
+      upTail = dialed.tail;
+    } catch {
+      try {
+        client.end(
+          Buffer.from([0x05, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
+        );
+      } catch {
+        /* ignore */
+      }
+      cr.detach();
+      return;
+    }
+
+    // Tell Chrome "succeeded" with a stub bound address (0.0.0.0:0). Chrome
+    // doesn't validate this for outbound CONNECT.
+    client.write(
+      Buffer.from([0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
+    );
+  } catch {
+    try {
+      client.destroy();
     } catch {
       /* ignore */
     }
+    if (upSock) {
+      try {
+        upSock.destroy();
+      } catch {
+        /* ignore */
+      }
+    }
     return;
   }
 
-  // Tell Chrome "succeeded" with a stub bound address (0.0.0.0:0). Chrome
-  // doesn't validate this for outbound CONNECT.
-  client.write(
-    Buffer.from([0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
-  );
+  // Hand the sockets off to plain stream-piping.
+  const clientTail = cr.detach();
+  if (!upSock) {
+    client.destroy();
+    return;
+  }
+  const up = upSock;
 
-  upSock.on('error', () => {
+  up.on('error', () => {
     try {
       client.destroy();
     } catch {
       /* ignore */
     }
   });
-  client.on('close', () => upSock.destroy());
-  upSock.on('close', () => client.destroy());
-  upSock.pipe(client);
-  client.pipe(upSock);
+  client.on('close', () => up.destroy());
+  up.on('close', () => client.destroy());
+
+  // Forward any bytes that were already received but not yet consumed
+  // during the handshake. (e.g. if a SOCKS5 reply arrived in the same
+  // TCP chunk as some payload — rare but possible.)
+  if (upTail.length > 0) client.write(upTail);
+  if (clientTail.length > 0) up.write(clientTail);
+
+  up.pipe(client);
+  client.pipe(up);
+}
+
+interface DialResult {
+  sock: Socket;
+  tail: Buffer;
 }
 
 async function dialUpstream(
   upstream: ProxyConfig,
   host: string,
   port: number,
-): Promise<Socket> {
+): Promise<DialResult> {
   const sock = netConnect(upstream.port, upstream.host);
-  sock.on('error', () => {
-    /* surfaced via promise rejection below */
-  });
+  // Errors before we attach the SocketReader.
+  let earlyErr: Error | null = null;
+  const earlyOnError = (err: Error): void => {
+    earlyErr = err;
+  };
+  sock.on('error', earlyOnError);
+
   await new Promise<void>((resolve, reject) => {
-    sock.once('connect', () => resolve());
-    sock.once('error', reject);
-  });
-
-  // 1) Greeting: NMETHODS=2, methods = NO_AUTH(0x00) + USER_PASS(0x02)
-  sock.write(Buffer.from([0x05, 0x02, 0x00, 0x02]));
-  const reply = await readBytesAtLeast(sock, 2);
-  if (reply[0] !== 0x05) throw new Error('upstream: not SOCKS5');
-  const method = reply[1];
-  if (method === 0x02) {
-    // 2) User/pass sub-negotiation (RFC 1929)
-    const u = Buffer.from(upstream.username ?? '', 'utf8');
-    const p = Buffer.from(upstream.password ?? '', 'utf8');
-    if (u.length > 255 || p.length > 255) {
-      throw new Error('upstream: credentials too long');
-    }
-    const auth = Buffer.concat([
-      Buffer.from([0x01, u.length]),
-      u,
-      Buffer.from([p.length]),
-      p,
-    ]);
-    sock.write(auth);
-    const ar = await readBytesAtLeast(sock, 2);
-    if (ar[0] !== 0x01 || ar[1] !== 0x00) {
-      throw new Error('upstream: auth failed');
-    }
-  } else if (method !== 0x00) {
-    throw new Error(`upstream: unsupported method 0x${(method ?? 0).toString(16)}`);
-  }
-
-  // 3) CONNECT request — encode dest as domain (ATYP=0x03) which works for
-  // both IPv4-literal and hostnames. The upstream resolves it.
-  const hb = Buffer.from(host, 'ascii');
-  if (hb.length > 255) throw new Error('upstream: host too long');
-  const reqBuf = Buffer.concat([
-    Buffer.from([0x05, 0x01, 0x00, 0x03, hb.length]),
-    hb,
-    Buffer.from([(port >> 8) & 0xff, port & 0xff]),
-  ]);
-  sock.write(reqBuf);
-
-  const head = await readBytesAtLeast(sock, 4);
-  if (head[0] !== 0x05) throw new Error('upstream: not SOCKS5 reply');
-  if (head[1] !== 0x00) throw new Error(`upstream: connect failed (rep=${head[1]})`);
-  // Drain BND.ADDR + BND.PORT so the socket is at the start of payload.
-  const atyp = head[3];
-  let drainNeeded: number;
-  if (atyp === 0x01) drainNeeded = 4 + 2;
-  else if (atyp === 0x04) drainNeeded = 16 + 2;
-  else if (atyp === 0x03) {
-    const len = await readBytesAtLeast(sock, 1);
-    drainNeeded = (len[0] ?? 0) + 2;
-  } else {
-    throw new Error('upstream: unknown ATYP in reply');
-  }
-  await readBytesAtLeast(sock, drainNeeded);
-  return sock;
-}
-
-/**
- * Read until at least `n` bytes have been seen on the socket, returning the
- * accumulated buffer. If `existing` is provided it counts toward `n` first
- * (useful when we previously peeked at a header).
- */
-function readBytesAtLeast(sock: Socket, n: number, existing?: Buffer): Promise<Buffer> {
-  return new Promise<Buffer>((resolve, reject) => {
-    let buf = existing ?? Buffer.alloc(0);
-    if (buf.length >= n) {
-      resolve(buf);
-      return;
-    }
-    const onData = (chunk: Buffer): void => {
-      buf = Buffer.concat([buf, chunk]);
-      if (buf.length >= n) {
-        sock.removeListener('data', onData);
-        sock.removeListener('error', onError);
-        sock.removeListener('end', onEnd);
-        resolve(buf);
-      }
+    const onConnect = (): void => {
+      sock.removeListener('error', onErr);
+      resolve();
     };
-    const onError = (err: Error): void => {
-      sock.removeListener('data', onData);
-      sock.removeListener('end', onEnd);
+    const onErr = (err: Error): void => {
+      sock.removeListener('connect', onConnect);
       reject(err);
     };
-    const onEnd = (): void => {
-      sock.removeListener('data', onData);
-      sock.removeListener('error', onError);
-      reject(new Error('socket closed before all bytes read'));
-    };
-    sock.on('data', onData);
-    sock.once('error', onError);
-    sock.once('end', onEnd);
+    sock.once('connect', onConnect);
+    sock.once('error', onErr);
   });
+  if (earlyErr) {
+    sock.destroy();
+    throw earlyErr;
+  }
+  sock.removeListener('error', earlyOnError);
+
+  const r = new SocketReader(sock);
+
+  try {
+    // 1) Greeting: NMETHODS=2, methods = NO_AUTH(0x00) + USER_PASS(0x02)
+    sock.write(Buffer.from([0x05, 0x02, 0x00, 0x02]));
+    const reply = await r.read(2);
+    if (reply[0] !== 0x05) throw new Error('upstream: not SOCKS5');
+    const method = reply[1];
+    if (method === 0x02) {
+      // 2) User/pass sub-negotiation (RFC 1929)
+      const u = Buffer.from(upstream.username ?? '', 'utf8');
+      const p = Buffer.from(upstream.password ?? '', 'utf8');
+      if (u.length > 255 || p.length > 255) {
+        throw new Error('upstream: credentials too long');
+      }
+      const auth = Buffer.concat([
+        Buffer.from([0x01, u.length]),
+        u,
+        Buffer.from([p.length]),
+        p,
+      ]);
+      sock.write(auth);
+      const ar = await r.read(2);
+      if (ar[0] !== 0x01 || ar[1] !== 0x00) {
+        throw new Error('upstream: auth failed');
+      }
+    } else if (method === 0x00) {
+      // upstream is happy without auth — proceed.
+    } else if (method === 0xff) {
+      throw new Error('upstream: no acceptable methods');
+    } else {
+      throw new Error(`upstream: unsupported method 0x${(method ?? 0).toString(16)}`);
+    }
+
+    // 3) CONNECT request — encode dest as domain (ATYP=0x03) which works for
+    // both IPv4-literal and hostnames. The upstream resolves it.
+    const hb = Buffer.from(host, 'ascii');
+    if (hb.length > 255) throw new Error('upstream: host too long');
+    const reqBuf = Buffer.concat([
+      Buffer.from([0x05, 0x01, 0x00, 0x03, hb.length]),
+      hb,
+      Buffer.from([(port >> 8) & 0xff, port & 0xff]),
+    ]);
+    sock.write(reqBuf);
+
+    // Read VER REP RSV ATYP and then drain BND.ADDR + BND.PORT depending
+    // on ATYP — using the buffered reader so any bytes that arrive in the
+    // same TCP chunk are preserved for the subsequent reads.
+    const head = await r.read(4);
+    if (head[0] !== 0x05) throw new Error('upstream: not SOCKS5 reply');
+    if (head[1] !== 0x00) throw new Error(`upstream: connect failed (rep=${head[1]})`);
+    const replyAtyp = head[3];
+    if (replyAtyp === 0x01) {
+      await r.read(4 + 2);
+    } else if (replyAtyp === 0x04) {
+      await r.read(16 + 2);
+    } else if (replyAtyp === 0x03) {
+      const lenBuf = await r.read(1);
+      await r.read((lenBuf[0] ?? 0) + 2);
+    } else {
+      throw new Error('upstream: unknown ATYP in reply');
+    }
+  } catch (err) {
+    r.detach();
+    sock.destroy();
+    throw err;
+  }
+
+  // Detach the reader and hand the (possibly tail-buffered) socket back.
+  const tail = r.detach();
+  // Re-attach a no-op error handler so future async errors don't crash.
+  sock.on('error', () => {
+    /* surfaced via close handlers in the caller */
+  });
+  return { sock, tail };
 }
