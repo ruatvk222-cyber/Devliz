@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain } from 'electron';
+import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import type {
   AddExtensionFolderInput,
   AddExtensionStoreInput,
@@ -54,6 +54,7 @@ import {
   stopProfile,
 } from '../launcher/manager';
 import { checkProxies } from '../proxy/checker';
+import { listLaunchLogs, logsDir, readLaunchLog } from '../launcher/launch-log';
 
 function broadcast(channel: string, payload: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -181,6 +182,13 @@ export function registerIpcHandlers(): void {
         }));
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0] ?? null;
+  });
+
+  // ----- Diagnostics / launch logs
+  ipcMain.handle('logs.list', () => listLaunchLogs());
+  ipcMain.handle('logs.read', (_e, name: string): string | null => readLaunchLog(name));
+  ipcMain.handle('logs.openFolder', async (): Promise<void> => {
+    await shell.openPath(logsDir());
   });
 
   // Wire launcher events to all renderer windows.

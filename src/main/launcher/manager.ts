@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { AutomationConfig, LauncherStatus, ProfileStatus, ProxyConfig } from '@shared/types';
 import { getProfile, setProfileStatus } from '../repositories/profiles';
 import { getProxy } from '../repositories/proxies';
@@ -18,6 +19,7 @@ import { applyExtensionPrefs } from './chrome-prefs';
 import { extensionIdForPath } from './extension-id';
 import { listExtensionsForProfile } from '../repositories/extensions';
 import type { AutomationRegistration } from '../automation/listener';
+import { startLaunchLog, type LaunchLogger } from './launch-log';
 
 const GMAIL_URL = 'https://mail.google.com/mail/u/0/#inbox';
 
@@ -55,6 +57,25 @@ function pickPort(): number {
   const port = nextDebugPort;
   nextDebugPort = nextDebugPort >= 29999 ? 9333 : nextDebugPort + 1;
   return port;
+}
+
+function attachChildLogging(child: ChildProcess, log: LaunchLogger): void {
+  // Cap the captured browser stdout/stderr so a long-running session doesn't
+  // grow the log file unbounded. Most useful info from Chrome lands in the
+  // first ~64KB anyway (extension load errors, missing manifest, etc.).
+  const MAX = 64 * 1024;
+  let stdoutBytes = 0;
+  let stderrBytes = 0;
+  child.stdout?.on('data', (chunk: Buffer) => {
+    if (stdoutBytes >= MAX) return;
+    stdoutBytes += chunk.length;
+    log.write(`[stdout] ${chunk.toString('utf8').replace(/\n/g, '\n[stdout] ')}`);
+  });
+  child.stderr?.on('data', (chunk: Buffer) => {
+    if (stderrBytes >= MAX) return;
+    stderrBytes += chunk.length;
+    log.write(`[stderr] ${chunk.toString('utf8').replace(/\n/g, '\n[stderr] ')}`);
+  });
 }
 
 interface ProxyBridge {
@@ -107,9 +128,13 @@ export async function launchProfile(
     return { profileId, status: 'running', pid: r.pid, remoteDebugPort: r.remoteDebugPort };
   }
 
+  const log = startLaunchLog(profileId);
   const settings = getSettings();
   const chromePath = settings.chromePath ?? detectChromePath();
+  log.writeKv('chromePathFromSettings', settings.chromePath ?? '<unset>');
+  log.writeKv('chromePathResolved', chromePath ?? '<not-found>');
   if (!chromePath || !existsSync(chromePath)) {
+    log.write('ERROR: Chrome/Edge binary not found.');
     const err: LauncherStatus = {
       profileId,
       status: 'error',
@@ -201,15 +226,31 @@ export async function launchProfile(
     }
   }
 
-  const extensionDirs: string[] = [extDir];
-  if (automationPrep) extensionDirs.push(automationPrep.extDir);
-
-  // User-installed extensions (folder / zip / Chrome Web Store) attached to
-  // this profile.
+  // Only include extensions whose folder still has a manifest.json on disk.
+  // If we hand Chrome a stale path, Chrome silently drops the *entire* list
+  // (we've seen Edge in particular load zero extensions when one of the paths
+  // was missing) — so be defensive here.
+  const candidateDirs: string[] = [extDir];
+  if (automationPrep) candidateDirs.push(automationPrep.extDir);
   const userExts = listExtensionsForProfile(profileId);
-  for (const ue of userExts) {
-    if (existsSync(ue.extDir)) extensionDirs.push(ue.extDir);
+  for (const ue of userExts) candidateDirs.push(ue.extDir);
+
+  const extensionDirs: string[] = [];
+  const skippedDirs: { dir: string; reason: string }[] = [];
+  for (const dir of candidateDirs) {
+    if (!existsSync(dir)) {
+      skippedDirs.push({ dir, reason: 'directory missing' });
+      continue;
+    }
+    if (!existsSync(join(dir, 'manifest.json'))) {
+      skippedDirs.push({ dir, reason: 'manifest.json missing' });
+      continue;
+    }
+    extensionDirs.push(dir);
   }
+
+  log.writeKv('extensionDirs', extensionDirs);
+  if (skippedDirs.length) log.writeKv('skippedExtensionDirs', skippedDirs);
 
   const loadList = extensionDirs.join(',');
 
@@ -230,8 +271,6 @@ export async function launchProfile(
 
   const args: string[] = [
     `--user-data-dir=${profile.dataDir}`,
-    `--load-extension=${loadList}`,
-    `--disable-extensions-except=${loadList}`,
     `--user-agent=${fp.userAgent}`,
     `--lang=${fp.locale}`,
     `--accept-lang=${fp.acceptLanguage}`,
@@ -243,6 +282,16 @@ export async function launchProfile(
     '--disable-blink-features=AutomationControlled',
     `--device-scale-factor=${fp.deviceScaleFactor}`,
   ];
+
+  // Only emit --load-extension and the matching --disable-extensions-except
+  // if we actually have something to load. With an empty list,
+  // `--disable-extensions-except=` (empty value) tells Chrome to disable
+  // every extension except none — which is what we want, but some Chrome
+  // versions parse the empty string oddly, so just skip both flags.
+  if (loadList.length > 0) {
+    args.push(`--load-extension=${loadList}`);
+    args.push(`--disable-extensions-except=${loadList}`);
+  }
 
   if (fp.webrtcMask) {
     args.push('--force-webrtc-ip-handling-policy=disable_non_proxied_udp');
@@ -265,14 +314,20 @@ export async function launchProfile(
   }
   if (startUrl) args.push(startUrl);
 
+  log.writeKv('args', args);
+  log.writeKv('userDataDir', profile.dataDir);
+  log.writeKv('startUrl', startUrl ?? '');
+
   const child = spawn(chromePath, args, {
     detached: false,
-    stdio: 'ignore',
+    stdio: ['ignore', 'pipe', 'pipe'],
     env: {
       ...process.env,
       TZ: fp.timezone,
     },
   });
+
+  attachChildLogging(child, log);
 
   if (!child.pid) {
     if (authProxy) await authProxy.close().catch(() => undefined);
@@ -298,7 +353,8 @@ export async function launchProfile(
       : undefined,
   });
 
-  child.once('exit', () => {
+  child.once('exit', (code, signal) => {
+    log.writeKv('exit', { code, signal });
     const r = running.get(profileId);
     if (r?.authProxy) void r.authProxy.close().catch(() => undefined);
     if (r?.socks5Forwarder) void r.socks5Forwarder.close().catch(() => undefined);
@@ -308,6 +364,7 @@ export async function launchProfile(
   });
 
   child.once('error', (err) => {
+    log.writeKv('spawnError', err.message);
     const r = running.get(profileId);
     if (r?.authProxy) void r.authProxy.close().catch(() => undefined);
     if (r?.socks5Forwarder) void r.socks5Forwarder.close().catch(() => undefined);
