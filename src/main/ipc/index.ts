@@ -21,6 +21,7 @@ import {
 } from '../repositories/profiles';
 import {
   createProxy,
+  deleteProxies,
   deleteProxy,
   importProxies,
   listProxies,
@@ -60,6 +61,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('proxies.create', (_e, input: Omit<ProxyConfig, 'id' | 'createdAt'>): ProxyConfig => createProxy(input));
   ipcMain.handle('proxies.update', (_e, id: string, patch: Partial<ProxyConfig>): ProxyConfig => updateProxy(id, patch));
   ipcMain.handle('proxies.delete', (_e, id: string): void => deleteProxy(id));
+  ipcMain.handle('proxies.deleteMany', (_e, ids: string[]): void => deleteProxies(ids));
   ipcMain.handle('proxies.importBulk', (_e, options: ProxyImportOptions): ProxyConfig[] => importProxies(options));
   ipcMain.handle('proxies.check', async (_e, ids: string[]): Promise<ProxyCheckResult[]> => {
     return checkProxies(ids, (r) => broadcast('proxy.check.progress', r));

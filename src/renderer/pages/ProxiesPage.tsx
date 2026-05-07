@@ -3,13 +3,19 @@ import { CheckCircle2, Plus, Trash2, XCircle, Zap, Network } from 'lucide-react'
 import type { ProxyCheckResult, ProxyConfig, ProxyType } from '@shared/types';
 import { useApp } from '../store';
 import { ImportProxiesModal } from '../components/ImportProxiesModal';
+import { useT } from '../i18n';
 
 export function ProxiesPage(): JSX.Element {
   const proxies = useApp((s) => s.proxies);
   const refresh = useApp((s) => s.refresh);
+  const selected = useApp((s) => s.selectedProxyIds);
+  const setSelected = useApp((s) => s.setSelectedProxies);
+  const toggleSelected = useApp((s) => s.toggleSelectedProxy);
+  const clearSelection = useApp((s) => s.clearProxySelection);
   const [importOpen, setImportOpen] = useState(false);
   const [checking, setChecking] = useState<Set<string>>(new Set());
   const [progress, setProgress] = useState<Record<string, ProxyCheckResult>>({});
+  const t = useT();
 
   // New proxy form
   const [type, setType] = useState<ProxyType>('http');
@@ -45,9 +51,24 @@ export function ProxiesPage(): JSX.Element {
     await refresh();
   }
 
+  const allSelected = proxies.length > 0 && proxies.every((p) => selected.includes(p.id));
+
+  function toggleAll(): void {
+    if (allSelected) clearSelection();
+    else setSelected(proxies.map((p) => p.id));
+  }
+
   async function remove(id: string): Promise<void> {
-    if (!confirm('Delete this proxy? Profiles using it will keep the assignment but fall back to direct.')) return;
+    if (!confirm(t('proxies.deleteConfirmOne'))) return;
     await window.api.proxies.delete(id);
+    await refresh();
+  }
+
+  async function removeSelected(): Promise<void> {
+    if (selected.length === 0) return;
+    if (!confirm(t('proxies.deleteConfirmMany', { n: selected.length }))) return;
+    await window.api.proxies.deleteMany(selected);
+    clearSelection();
     await refresh();
   }
 
@@ -90,14 +111,17 @@ export function ProxiesPage(): JSX.Element {
     <div className="h-full flex flex-col">
       <header className="px-6 py-4 border-b border-border flex items-center gap-3 bg-bg-surface">
         <h1 className="text-lg font-semibold flex items-center gap-2">
-          <Network size={18} className="text-accent" /> Proxies
+          <Network size={18} className="text-accent" /> {t('proxies.title')}
         </h1>
         <div className="flex-1" />
+        <button type="button" className="btn-danger" onClick={removeSelected} disabled={selected.length === 0}>
+          <Trash2 size={14} /> {t('proxies.deleteSelected')} ({selected.length})
+        </button>
         <button type="button" className="btn-secondary" onClick={() => setImportOpen(true)}>
-          <Plus size={14} /> Bulk import
+          <Plus size={14} /> {t('proxies.bulkImport')}
         </button>
         <button type="button" className="btn-primary" onClick={checkAll} disabled={proxies.length === 0}>
-          <Zap size={14} /> Check all
+          <Zap size={14} /> {t('proxies.checkAll')}
         </button>
       </header>
 
@@ -155,22 +179,39 @@ export function ProxiesPage(): JSX.Element {
           </div>
         ) : (
           <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-bg-surface border-b border-border">
+            <thead className="sticky top-0 bg-bg-surface border-b border-border z-10">
               <tr className="text-left text-xs uppercase text-text-dim">
-                <th className="px-4 py-2">Type</th>
-                <th className="px-4 py-2">Host:Port</th>
-                <th className="px-4 py-2">Auth</th>
-                <th className="px-4 py-2">Status</th>
-                <th className="px-4 py-2">Label</th>
-                <th className="px-4 py-2 text-right">Actions</th>
+                <th className="px-4 py-2 w-8">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleAll}
+                    className="accent-accent"
+                  />
+                </th>
+                <th className="px-4 py-2">{t('proxies.col.type')}</th>
+                <th className="px-4 py-2">{t('proxies.col.hostPort')}</th>
+                <th className="px-4 py-2">{t('proxies.col.auth')}</th>
+                <th className="px-4 py-2">{t('proxies.col.status')}</th>
+                <th className="px-4 py-2">{t('proxies.col.label')}</th>
+                <th className="px-4 py-2 text-right">{t('proxies.col.actions')}</th>
               </tr>
             </thead>
             <tbody>
               {proxies.map((p) => {
                 const st = statusFor(p);
                 const isChecking = checking.has(p.id);
+                const isSelected = selected.includes(p.id);
                 return (
-                  <tr key={p.id} className="border-b border-border hover:bg-bg-hover">
+                  <tr key={p.id} className={`border-b border-border hover:bg-bg-hover transition-colors ${isSelected ? 'bg-accent/5' : ''}`}>
+                    <td className="px-4 py-2">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleSelected(p.id)}
+                        className="accent-accent"
+                      />
+                    </td>
                     <td className="px-4 py-2">
                       <span className="font-mono text-xs uppercase text-text-muted">{p.type}</span>
                     </td>

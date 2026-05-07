@@ -107,15 +107,31 @@ async function devlizBootstrap() {
     ),
   );
 
-  // Open Gmail (or focus existing tab).
-  chrome.tabs.query({ url: 'https://mail.google.com/*' }, (tabs) => {
-    if (tabs && tabs.length > 0) {
-      const t = tabs[0];
-      chrome.tabs.update(t.id, { active: true, url: GMAIL_URL });
-    } else {
-      chrome.tabs.create({ url: GMAIL_URL, active: true });
-    }
-  });
+  // Devliz already passes the Gmail URL on the Chrome command line, so the
+  // first window is opening on Gmail by the time we get here. We only need
+  // to open / focus a tab as a fallback — give Chrome a moment first to
+  // avoid creating a second duplicate Gmail tab.
+  setTimeout(() => {
+    chrome.tabs.query({ url: 'https://mail.google.com/*' }, (tabs) => {
+      if (tabs && tabs.length > 0) {
+        const t = tabs[0];
+        try {
+          chrome.tabs.update(t.id, { active: true });
+        } catch (_) {
+          /* ignore */
+        }
+        if (t.windowId !== undefined) {
+          try {
+            chrome.windows.update(t.windowId, { focused: true });
+          } catch (_) {
+            /* ignore */
+          }
+        }
+      } else {
+        chrome.tabs.create({ url: GMAIL_URL, active: true });
+      }
+    });
+  }, 1500);
 
   await devlizPostEvent('bootstrap', { readSeconds, maxItems, humanLike });
 }

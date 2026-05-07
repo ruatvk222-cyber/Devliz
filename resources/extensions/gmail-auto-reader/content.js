@@ -452,13 +452,12 @@
 
   // ---------- Bootstrap ----------
 
-  function init() {
-    buildOverlay();
-    setOverlay('idle', 'Idle', 'Sẵn sàng. Bấm Start để mở từng email chưa đọc.');
-
-    // Honor one-shot autoStart from popup. Only respect it if it was set in
-    // the last 30 seconds so navigating away and back later doesn't re-trigger.
+  function consumeAutoStart() {
+    // Honor one-shot autoStart from popup or Devliz bootstrap. Only respect
+    // it if it was set in the last 30 seconds so navigating away and back
+    // later doesn't re-trigger.
     chrome.storage.local.get(['autoStart', 'autoStartTs'], (vals) => {
+      if (state.running) return;
       if (vals && vals.autoStart && vals.autoStartTs) {
         const age = Date.now() - vals.autoStartTs;
         if (age < 30 * 1000) {
@@ -467,6 +466,28 @@
         }
       }
     });
+  }
+
+  function init() {
+    buildOverlay();
+    setOverlay('idle', 'Idle', 'Sẵn sàng. Bấm Start để mở từng email chưa đọc.');
+
+    consumeAutoStart();
+
+    // Race with the background service worker: when Chrome boots fresh with
+    // --load-extension, Gmail's content script may attach BEFORE
+    // devlizBootstrap() has had a chance to set autoStart in storage.local.
+    // Listen for the change and start the run as soon as the flag flips on.
+    try {
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area !== 'local') return;
+        if (changes.autoStart && changes.autoStart.newValue === true) {
+          consumeAutoStart();
+        }
+      });
+    } catch (_) {
+      /* ignore */
+    }
   }
 
   if (document.readyState === 'loading') {

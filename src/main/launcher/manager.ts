@@ -9,7 +9,11 @@ import { detectChromePath } from './chrome-path';
 import { writeFingerprintExtension } from './extension';
 import { authProxyApplies, startAuthProxy, type AuthProxyHandle } from './auth-proxy';
 import { prepareAutomation } from './automation';
+import { applyExtensionPrefs } from './chrome-prefs';
+import { extensionIdForPath } from './extension-id';
 import type { AutomationRegistration } from '../automation/listener';
+
+const GMAIL_URL = 'https://mail.google.com/mail/u/0/#inbox';
 
 interface RunningProfile {
   pid: number;
@@ -161,6 +165,18 @@ export async function launchProfile(
   if (automationPrep) extensionDirs.push(automationPrep.extDir);
   const loadList = extensionDirs.join(',');
 
+  // Pre-write Chrome's Default/Preferences so:
+  //   1. chrome://extensions opens with Developer Mode already on, and
+  //   2. the loaded extensions are pinned to the toolbar (visible icons).
+  //      This is what the user sees as "the Gmail Auto Reader extension is
+  //      installed and pinned" without them touching anything.
+  try {
+    const pinIds = extensionDirs.map((d) => extensionIdForPath(d));
+    applyExtensionPrefs(profile.dataDir, pinIds);
+  } catch {
+    /* non-fatal — Chrome will still launch, just without the dev-mode toggle */
+  }
+
   const debugPort = pickPort();
   const fp = profile.fingerprint;
 
@@ -189,7 +205,16 @@ export async function launchProfile(
     args.push(`--proxy-server=${proxyArg}`);
   }
 
-  const startUrl = profile.startUrl ?? settings.defaultStartUrl;
+  // When running an automation that targets Gmail, force the first tab to be
+  // Gmail itself. Background.js will set autoStart=true, content.js will pick
+  // it up the moment Gmail finishes loading, and the run kicks off without
+  // any human clicking the popup.
+  let startUrl: string | undefined;
+  if (options.automation?.kind === 'gmail-auto-reader') {
+    startUrl = GMAIL_URL;
+  } else {
+    startUrl = profile.startUrl ?? settings.defaultStartUrl;
+  }
   if (startUrl) args.push(startUrl);
 
   const child = spawn(chromePath, args, {

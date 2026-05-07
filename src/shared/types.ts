@@ -180,6 +180,7 @@ export interface IpcApi {
     create(input: Omit<ProxyConfig, 'id' | 'createdAt'>): Promise<ProxyConfig>;
     update(id: string, patch: Partial<ProxyConfig>): Promise<ProxyConfig>;
     delete(id: string): Promise<void>;
+    deleteMany(ids: string[]): Promise<void>;
     importBulk(options: ProxyImportOptions): Promise<ProxyConfig[]>;
     check(ids: string[]): Promise<ProxyCheckResult[]>;
   };
