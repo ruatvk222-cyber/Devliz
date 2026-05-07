@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
-import { Copy, Edit3, Play, Plus, Search, Square, Trash2, Users } from 'lucide-react';
+import { Copy, Edit3, Play, Plus, Puzzle, Search, Square, Trash2, Users } from 'lucide-react';
 import type { Profile } from '@shared/types';
 import { useApp } from '../store';
 import { StatusBadge } from '../components/StatusBadge';
 import { BulkCreateModal } from '../components/BulkCreateModal';
 import { EditProfileDrawer } from '../components/EditProfileDrawer';
+import { AttachExtensionModal } from '../components/AttachExtensionModal';
 import { useT } from '../i18n';
 
 export function ProfilesPage(): JSX.Element {
@@ -22,6 +23,8 @@ export function ProfilesPage(): JSX.Element {
 
   const [bulkOpen, setBulkOpen] = useState(false);
   const [editing, setEditing] = useState<Profile | null>(null);
+  const [attachExtOpen, setAttachExtOpen] = useState(false);
+  const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null);
   const t = useT();
 
   const groups = useMemo(() => {
@@ -88,6 +91,20 @@ export function ProfilesPage(): JSX.Element {
     await refresh();
   }
 
+  async function commitRename(): Promise<void> {
+    if (!renaming) return;
+    const value = renaming.value.trim();
+    const target = profiles.find((p) => p.id === renaming.id);
+    setRenaming(null);
+    if (!target || !value || value === target.name) return;
+    try {
+      await window.api.profiles.update(target.id, { name: value });
+      await refresh();
+    } catch (err) {
+      alert(`Rename failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   return (
     <div className="h-full flex flex-col">
       <header className="px-6 py-4 border-b border-border flex items-center gap-3 bg-bg-surface">
@@ -127,6 +144,14 @@ export function ProfilesPage(): JSX.Element {
           </button>
           <button type="button" className="btn-secondary" onClick={stopAll}>
             <Square size={14} /> {t('profiles.stopAll')}
+          </button>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => setAttachExtOpen(true)}
+            disabled={selected.length === 0}
+          >
+            <Puzzle size={14} /> {t('profiles.addExtension')} ({selected.length})
           </button>
           <button type="button" className="btn-danger" onClick={removeSelected} disabled={selected.length === 0}>
             <Trash2 size={14} /> {t('profiles.deleteSelected')} ({selected.length})
@@ -187,12 +212,30 @@ export function ProfilesPage(): JSX.Element {
                       />
                     </td>
                     <td className="px-4 py-2">
-                      <button
-                        className="text-text hover:text-accent text-left"
-                        onClick={() => setEditing(p)}
-                      >
-                        {p.name}
-                      </button>
+                      {renaming?.id === p.id ? (
+                        <input
+                          autoFocus
+                          className="input py-1 px-2 text-sm"
+                          value={renaming.value}
+                          onChange={(e) =>
+                            setRenaming({ id: p.id, value: e.target.value })
+                          }
+                          onBlur={() => void commitRename()}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') void commitRename();
+                            else if (e.key === 'Escape') setRenaming(null);
+                          }}
+                        />
+                      ) : (
+                        <button
+                          className="text-text hover:text-accent text-left"
+                          onClick={() => setEditing(p)}
+                          onDoubleClick={() => setRenaming({ id: p.id, value: p.name })}
+                          title={t('profiles.renameHint')}
+                        >
+                          {p.name}
+                        </button>
+                      )}
                       {p.tags && (
                         <div className="text-xs text-text-dim mt-0.5">
                           {p.tags}
@@ -275,6 +318,11 @@ export function ProfilesPage(): JSX.Element {
 
       <BulkCreateModal open={bulkOpen} onClose={() => setBulkOpen(false)} />
       <EditProfileDrawer open={editing !== null} profile={editing} onClose={() => setEditing(null)} />
+      <AttachExtensionModal
+        open={attachExtOpen}
+        profileIds={selected}
+        onClose={() => setAttachExtOpen(false)}
+      />
     </div>
   );
 }

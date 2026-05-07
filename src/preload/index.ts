@@ -1,5 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
+  AddExtensionFolderInput,
+  AddExtensionStoreInput,
+  AddExtensionZipInput,
   AppSettings,
   AutomationConfig,
   BulkCreateOptions,
@@ -9,6 +12,7 @@ import type {
   ProxyCheckResult,
   ProxyConfig,
   ProxyImportOptions,
+  UserExtension,
 } from '@shared/types';
 
 const api: IpcApi = {
@@ -48,6 +52,24 @@ const api: IpcApi = {
     get: () => ipcRenderer.invoke('settings.get') as Promise<AppSettings>,
     update: (patch) => ipcRenderer.invoke('settings.update', patch) as Promise<AppSettings>,
     detectChromePath: () => ipcRenderer.invoke('settings.detectChromePath') as Promise<string | null>,
+  },
+  extensions: {
+    list: () => ipcRenderer.invoke('extensions.list') as Promise<UserExtension[]>,
+    addFromFolder: (input: AddExtensionFolderInput) =>
+      ipcRenderer.invoke('extensions.addFromFolder', input) as Promise<UserExtension>,
+    addFromZip: (input: AddExtensionZipInput) =>
+      ipcRenderer.invoke('extensions.addFromZip', input) as Promise<UserExtension>,
+    addFromStore: (input: AddExtensionStoreInput) =>
+      ipcRenderer.invoke('extensions.addFromStore', input) as Promise<UserExtension>,
+    delete: (id) => ipcRenderer.invoke('extensions.delete', id) as Promise<void>,
+    forProfile: (profileId) =>
+      ipcRenderer.invoke('extensions.forProfile', profileId) as Promise<UserExtension[]>,
+    attach: (extensionId, profileIds) =>
+      ipcRenderer.invoke('extensions.attach', extensionId, profileIds) as Promise<void>,
+    detach: (extensionId, profileIds) =>
+      ipcRenderer.invoke('extensions.detach', extensionId, profileIds) as Promise<void>,
+    pickFolder: () => ipcRenderer.invoke('extensions.pickFolder') as Promise<string | null>,
+    pickZip: () => ipcRenderer.invoke('extensions.pickZip') as Promise<string | null>,
   },
   events: {
     onLauncherStatus: (cb) => {

@@ -164,6 +164,37 @@ export const DEFAULT_AUTOMATION_GMAIL: AutomationConfig = {
   closeOnFinish: true,
 };
 
+export type UserExtensionSource = 'folder' | 'zip' | 'store';
+
+export interface UserExtension {
+  id: string;
+  name: string;
+  source: UserExtensionSource;
+  /** Original path / URL the user supplied; informational only. */
+  sourceRef?: string;
+  /** Absolute path of the unpacked extension dir Chrome can `--load-extension`. */
+  extDir: string;
+  /** Chrome Web Store extension ID (only for store-sourced entries). */
+  extId?: string;
+  addedAt: number;
+}
+
+export interface AddExtensionFolderInput {
+  folderPath: string;
+  name?: string;
+}
+
+export interface AddExtensionZipInput {
+  zipPath: string;
+  name?: string;
+}
+
+export interface AddExtensionStoreInput {
+  /** Either a Chrome Web Store URL, or a 32-char extension ID. */
+  urlOrId: string;
+  name?: string;
+}
+
 export interface IpcApi {
   profiles: {
     list(): Promise<Profile[]>;
@@ -200,6 +231,18 @@ export interface IpcApi {
     get(): Promise<AppSettings>;
     update(patch: Partial<AppSettings>): Promise<AppSettings>;
     detectChromePath(): Promise<string | null>;
+  };
+  extensions: {
+    list(): Promise<UserExtension[]>;
+    addFromFolder(input: AddExtensionFolderInput): Promise<UserExtension>;
+    addFromZip(input: AddExtensionZipInput): Promise<UserExtension>;
+    addFromStore(input: AddExtensionStoreInput): Promise<UserExtension>;
+    delete(id: string): Promise<void>;
+    forProfile(profileId: string): Promise<UserExtension[]>;
+    attach(extensionId: string, profileIds: string[]): Promise<void>;
+    detach(extensionId: string, profileIds: string[]): Promise<void>;
+    pickFolder(): Promise<string | null>;
+    pickZip(): Promise<string | null>;
   };
   events: {
     /** Subscribe to launcher status updates. Returns an unsubscribe fn. */

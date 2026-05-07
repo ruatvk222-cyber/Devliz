@@ -31,6 +31,8 @@ const en: Dict = {
   'profiles.col.actions': 'Actions',
   'profiles.deleteConfirmOne': 'Delete this profile? This will not delete its on-disk data dir.',
   'profiles.deleteConfirmMany': 'Delete {n} profiles?',
+  'profiles.addExtension': 'Add extension',
+  'profiles.renameHint': 'Click to edit · double-click to rename inline',
 
   'proxies.title': 'Proxies',
   'proxies.bulkImport': 'Bulk import',
@@ -84,6 +86,39 @@ const en: Dict = {
   'automation.selectAll': 'Select all',
   'automation.clear': 'Clear',
   'automation.openButton': 'Configure & run',
+
+  'common.cancel': 'Cancel',
+  'common.saving': 'Working…',
+
+  'extensions.modalTitle': 'Add extension to {n} profile(s)',
+  'extensions.modalDescription':
+    'Pick a source. The extension will be installed and attached to all {n} selected profile(s) — they\'ll load it next time they launch.',
+  'extensions.tabFolder': 'Unpacked folder',
+  'extensions.tabZip': 'ZIP / CRX file',
+  'extensions.tabStore': 'Chrome Web Store',
+  'extensions.folderLabel': 'Path to the unpacked extension folder',
+  'extensions.folderHint':
+    'Pick the folder that contains manifest.json (same folder you\'d use in chrome://extensions "Load unpacked").',
+  'extensions.zipLabel': 'Path to the .zip or .crx file',
+  'extensions.zipHint':
+    'The archive will be unpacked into the app\'s extensions folder.',
+  'extensions.storeLabel': 'Chrome Web Store URL or extension ID',
+  'extensions.storeHint':
+    'The .crx will be downloaded from Google\'s update server and unpacked. No web store login is involved.',
+  'extensions.nameLabel': 'Display name (optional)',
+  'extensions.namePlaceholder': 'e.g. uBlock Origin',
+  'extensions.browse': 'Browse…',
+  'extensions.install': 'Install & attach',
+  'extensions.reuseLabel':
+    'Reuse an extension you already added (optional)',
+  'extensions.reuseAddNew': 'Add a new one',
+  'extensions.errPickFolder': 'Pick the unpacked extension folder.',
+  'extensions.errPickZip': 'Pick the .zip / .crx file.',
+  'extensions.errPickStore': 'Paste a Chrome Web Store URL or extension ID.',
+  'extensions.errNoProfiles': 'Select at least one profile first.',
+  'extensions.progressInstalling': 'Installing…',
+  'extensions.progressDownloading': 'Downloading from Web Store…',
+  'extensions.progressAttaching': 'Attaching to profiles…',
 };
 
 const vi: Dict = {
@@ -115,6 +150,8 @@ const vi: Dict = {
   'profiles.deleteConfirmOne':
     'Xoá hồ sơ này? Thư mục dữ liệu trên đĩa sẽ KHÔNG bị xoá.',
   'profiles.deleteConfirmMany': 'Xoá {n} hồ sơ?',
+  'profiles.addExtension': 'Thêm extension',
+  'profiles.renameHint': 'Click để mở · click đôi để đổi tên nhanh',
 
   'proxies.title': 'Proxy',
   'proxies.bulkImport': 'Nhập hàng loạt',
@@ -169,6 +206,39 @@ const vi: Dict = {
   'automation.selectAll': 'Chọn tất cả',
   'automation.clear': 'Bỏ chọn',
   'automation.openButton': 'Cấu hình & chạy',
+
+  'common.cancel': 'Huỷ',
+  'common.saving': 'Đang xử lý…',
+
+  'extensions.modalTitle': 'Thêm extension vào {n} hồ sơ',
+  'extensions.modalDescription':
+    'Chọn nguồn. Extension sẽ được cài và áp vào toàn bộ {n} hồ sơ đã chọn — lần launch tới sẽ tự load.',
+  'extensions.tabFolder': 'Thư mục unpacked',
+  'extensions.tabZip': 'File ZIP / CRX',
+  'extensions.tabStore': 'Chrome Web Store',
+  'extensions.folderLabel': 'Đường dẫn thư mục extension unpacked',
+  'extensions.folderHint':
+    'Chọn thư mục chứa manifest.json (giống lúc "Load unpacked" trong chrome://extensions).',
+  'extensions.zipLabel': 'Đường dẫn file .zip hoặc .crx',
+  'extensions.zipHint':
+    'File sẽ được giải nén vào thư mục extension của app.',
+  'extensions.storeLabel': 'URL Chrome Web Store hoặc ID extension',
+  'extensions.storeHint':
+    'App tải file .crx trực tiếp từ Google rồi giải nén. Không cần login Web Store.',
+  'extensions.nameLabel': 'Tên hiển thị (không bắt buộc)',
+  'extensions.namePlaceholder': 'vd: uBlock Origin',
+  'extensions.browse': 'Chọn…',
+  'extensions.install': 'Cài & áp dụng',
+  'extensions.reuseLabel':
+    'Dùng lại extension đã thêm (không bắt buộc)',
+  'extensions.reuseAddNew': 'Thêm mới',
+  'extensions.errPickFolder': 'Chọn thư mục extension unpacked.',
+  'extensions.errPickZip': 'Chọn file .zip / .crx.',
+  'extensions.errPickStore': 'Dán URL Chrome Web Store hoặc ID extension.',
+  'extensions.errNoProfiles': 'Chọn ít nhất 1 hồ sơ trước.',
+  'extensions.progressInstalling': 'Đang cài…',
+  'extensions.progressDownloading': 'Đang tải từ Web Store…',
+  'extensions.progressAttaching': 'Đang áp vào hồ sơ…',
 };
 
 const dicts: Record<AppLanguage, Dict> = { 'en-US': en, 'vi-VN': vi };

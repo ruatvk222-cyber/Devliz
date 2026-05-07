@@ -63,6 +63,27 @@ export function initDatabase(): Database.Database {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS user_extensions (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      source TEXT NOT NULL,
+      source_ref TEXT,
+      ext_dir TEXT NOT NULL,
+      ext_id TEXT,
+      added_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS profile_extensions (
+      profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+      extension_id TEXT NOT NULL REFERENCES user_extensions(id) ON DELETE CASCADE,
+      PRIMARY KEY (profile_id, extension_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_profile_extensions_profile
+      ON profile_extensions(profile_id);
+    CREATE INDEX IF NOT EXISTS idx_profile_extensions_extension
+      ON profile_extensions(extension_id);
   `);
 
   return db;
