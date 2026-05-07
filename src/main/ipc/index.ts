@@ -1,5 +1,8 @@
-import { BrowserWindow, ipcMain } from 'electron';
+import { BrowserWindow, dialog, ipcMain } from 'electron';
 import type {
+  AddExtensionFolderInput,
+  AddExtensionStoreInput,
+  AddExtensionZipInput,
   AppSettings,
   AutomationConfig,
   BulkCreateOptions,
@@ -8,7 +11,20 @@ import type {
   ProxyConfig,
   ProxyImportOptions,
   LauncherStatus,
+  UserExtension,
 } from '@shared/types';
+import {
+  attachExtensionToProfiles,
+  deleteExtension,
+  detachExtensionFromProfiles,
+  listExtensions,
+  listExtensionsForProfile,
+} from '../repositories/extensions';
+import {
+  installFromFolder,
+  installFromStore,
+  installFromZip,
+} from '../extensions/installer';
 import {
   bulkCreateProfiles,
   createProfile,
@@ -93,6 +109,58 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('settings.get', (): AppSettings => getSettings());
   ipcMain.handle('settings.update', (_e, patch: Partial<AppSettings>): AppSettings => updateSettings(patch));
   ipcMain.handle('settings.detectChromePath', (): string | null => detectChromePath());
+
+  // ----- Extensions
+  ipcMain.handle('extensions.list', (): UserExtension[] => listExtensions());
+  ipcMain.handle(
+    'extensions.addFromFolder',
+    (_e, input: AddExtensionFolderInput): UserExtension => installFromFolder(input),
+  );
+  ipcMain.handle(
+    'extensions.addFromZip',
+    (_e, input: AddExtensionZipInput): UserExtension => installFromZip(input),
+  );
+  ipcMain.handle(
+    'extensions.addFromStore',
+    (_e, input: AddExtensionStoreInput): Promise<UserExtension> => installFromStore(input),
+  );
+  ipcMain.handle('extensions.delete', (_e, id: string): void => deleteExtension(id));
+  ipcMain.handle(
+    'extensions.forProfile',
+    (_e, profileId: string): UserExtension[] => listExtensionsForProfile(profileId),
+  );
+  ipcMain.handle(
+    'extensions.attach',
+    (_e, extensionId: string, profileIds: string[]): void =>
+      attachExtensionToProfiles(extensionId, profileIds),
+  );
+  ipcMain.handle(
+    'extensions.detach',
+    (_e, extensionId: string, profileIds: string[]): void =>
+      detachExtensionFromProfiles(extensionId, profileIds),
+  );
+  ipcMain.handle('extensions.pickFolder', async (): Promise<string | null> => {
+    const focus = BrowserWindow.getFocusedWindow();
+    const result = await (focus
+      ? dialog.showOpenDialog(focus, { properties: ['openDirectory'] })
+      : dialog.showOpenDialog({ properties: ['openDirectory'] }));
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0] ?? null;
+  });
+  ipcMain.handle('extensions.pickZip', async (): Promise<string | null> => {
+    const focus = BrowserWindow.getFocusedWindow();
+    const result = await (focus
+      ? dialog.showOpenDialog(focus, {
+          properties: ['openFile'],
+          filters: [{ name: 'Extension package', extensions: ['zip', 'crx'] }],
+        })
+      : dialog.showOpenDialog({
+          properties: ['openFile'],
+          filters: [{ name: 'Extension package', extensions: ['zip', 'crx'] }],
+        }));
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0] ?? null;
+  });
 
   // Wire launcher events to all renderer windows.
   onLauncherStatus((status) => broadcast('launcher.status', status));

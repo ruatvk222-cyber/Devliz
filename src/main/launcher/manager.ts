@@ -8,9 +8,15 @@ import { getSettings } from '../repositories/settings';
 import { detectChromePath } from './chrome-path';
 import { writeFingerprintExtension } from './extension';
 import { authProxyApplies, startAuthProxy, type AuthProxyHandle } from './auth-proxy';
+import {
+  socks5ForwarderApplies,
+  startSocks5Forwarder,
+  type Socks5ForwarderHandle,
+} from './socks5-forwarder';
 import { prepareAutomation } from './automation';
 import { applyExtensionPrefs } from './chrome-prefs';
 import { extensionIdForPath } from './extension-id';
+import { listExtensionsForProfile } from '../repositories/extensions';
 import type { AutomationRegistration } from '../automation/listener';
 
 const GMAIL_URL = 'https://mail.google.com/mail/u/0/#inbox';
@@ -20,6 +26,7 @@ interface RunningProfile {
   child: ChildProcess;
   remoteDebugPort: number;
   authProxy?: AuthProxyHandle;
+  socks5Forwarder?: Socks5ForwarderHandle;
   automation?: {
     registration: AutomationRegistration;
     closeOnFinish: boolean;
@@ -50,17 +57,29 @@ function pickPort(): number {
   return port;
 }
 
-function buildProxyArg(proxy: ProxyConfig | null, authBridgePort: number | null): string | null {
+interface ProxyBridge {
+  authProxyPort: number | null;
+  socks5ForwarderPort: number | null;
+}
+
+function buildProxyArg(proxy: ProxyConfig | null, bridge: ProxyBridge): string | null {
   if (!proxy || proxy.type === 'none') return null;
   // For HTTP/HTTPS upstreams that need auth, point Chrome at the local auth
   // bridge instead of the upstream directly. Chrome strips inline credentials
   // from --proxy-server URLs for http(s) and would prompt the user otherwise.
-  if (authBridgePort !== null) {
-    return `http://127.0.0.1:${authBridgePort}`;
+  if (bridge.authProxyPort !== null) {
+    return `http://127.0.0.1:${bridge.authProxyPort}`;
+  }
+  // For SOCKS5 with auth, Chrome's --proxy-server flag also strips creds
+  // (results in ERR_NO_SUPPORTED_PROXIES because Chrome can't run the
+  // RFC 1929 user/pass sub-negotiation when the URL has user:pass@). Route
+  // through our local SOCKS5 forwarder instead.
+  if (bridge.socks5ForwarderPort !== null) {
+    return `socks5://127.0.0.1:${bridge.socks5ForwarderPort}`;
   }
   const scheme = proxy.type === 'http' ? 'http' : proxy.type;
-  // SOCKS supports inline credentials in the proxy URL (Chrome handles auth).
-  if (proxy.username && (proxy.type === 'socks4' || proxy.type === 'socks5')) {
+  // SOCKS4 has no user/pass sub-negotiation, so just inline.
+  if (proxy.username && proxy.type === 'socks4') {
     const u = encodeURIComponent(proxy.username);
     const p = encodeURIComponent(proxy.password ?? '');
     return `${scheme}://${u}:${p}@${proxy.host}:${proxy.port}`;
@@ -105,9 +124,12 @@ export async function launchProfile(
 
   const proxy = profile.proxyId ? getProxy(profile.proxyId) : null;
 
-  // For authenticated HTTP/HTTPS proxies, start a local bridge so Chrome
-  // doesn't pop the auth dialog. SOCKS upstreams handle auth in the URL.
+  // For authenticated HTTP/HTTPS proxies, start a local CONNECT bridge so
+  // Chrome doesn't pop the auth dialog. For authenticated SOCKS5 proxies,
+  // start a local SOCKS5 forwarder that runs the user/pass handshake on
+  // Chrome's behalf. SOCKS4 inlines auth into the URL directly.
   let authProxy: AuthProxyHandle | undefined;
+  let socks5Forwarder: Socks5ForwarderHandle | undefined;
   if (authProxyApplies(proxy)) {
     try {
       authProxy = await startAuthProxy(proxy as ProxyConfig);
@@ -122,9 +144,26 @@ export async function launchProfile(
       emit(e);
       return e;
     }
+  } else if (socks5ForwarderApplies(proxy)) {
+    try {
+      socks5Forwarder = await startSocks5Forwarder(proxy as ProxyConfig);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const e: LauncherStatus = {
+        profileId,
+        status: 'error',
+        error: `Failed to start SOCKS5 forwarder: ${msg}`,
+      };
+      setProfileStatus(profileId, 'error');
+      emit(e);
+      return e;
+    }
   }
 
-  const proxyArg = buildProxyArg(proxy, authProxy ? authProxy.port : null);
+  const proxyArg = buildProxyArg(proxy, {
+    authProxyPort: authProxy ? authProxy.port : null,
+    socks5ForwarderPort: socks5Forwarder ? socks5Forwarder.port : null,
+  });
 
   const extDir = writeFingerprintExtension(profile.dataDir, {
     fingerprint: profile.fingerprint,
@@ -149,6 +188,7 @@ export async function launchProfile(
       );
     } catch (err) {
       if (authProxy) await authProxy.close().catch(() => undefined);
+      if (socks5Forwarder) await socks5Forwarder.close().catch(() => undefined);
       const msg = err instanceof Error ? err.message : String(err);
       const e: LauncherStatus = {
         profileId,
@@ -163,6 +203,14 @@ export async function launchProfile(
 
   const extensionDirs: string[] = [extDir];
   if (automationPrep) extensionDirs.push(automationPrep.extDir);
+
+  // User-installed extensions (folder / zip / Chrome Web Store) attached to
+  // this profile.
+  const userExts = listExtensionsForProfile(profileId);
+  for (const ue of userExts) {
+    if (existsSync(ue.extDir)) extensionDirs.push(ue.extDir);
+  }
+
   const loadList = extensionDirs.join(',');
 
   // Pre-write Chrome's Default/Preferences so:
@@ -228,6 +276,7 @@ export async function launchProfile(
 
   if (!child.pid) {
     if (authProxy) await authProxy.close().catch(() => undefined);
+    if (socks5Forwarder) await socks5Forwarder.close().catch(() => undefined);
     if (automationPrep) automationPrep.registration.unregister();
     const err: LauncherStatus = { profileId, status: 'error', error: 'Failed to spawn browser process.' };
     setProfileStatus(profileId, 'error');
@@ -240,6 +289,7 @@ export async function launchProfile(
     child,
     remoteDebugPort: debugPort,
     authProxy,
+    socks5Forwarder,
     automation: automationPrep
       ? {
           registration: automationPrep.registration,
@@ -251,6 +301,7 @@ export async function launchProfile(
   child.once('exit', () => {
     const r = running.get(profileId);
     if (r?.authProxy) void r.authProxy.close().catch(() => undefined);
+    if (r?.socks5Forwarder) void r.socks5Forwarder.close().catch(() => undefined);
     if (r?.automation) r.automation.registration.unregister();
     running.delete(profileId);
     updateStatus(profileId, 'idle');
@@ -259,6 +310,7 @@ export async function launchProfile(
   child.once('error', (err) => {
     const r = running.get(profileId);
     if (r?.authProxy) void r.authProxy.close().catch(() => undefined);
+    if (r?.socks5Forwarder) void r.socks5Forwarder.close().catch(() => undefined);
     if (r?.automation) r.automation.registration.unregister();
     running.delete(profileId);
     setProfileStatus(profileId, 'error');
@@ -350,6 +402,7 @@ export function stopAllProfiles(): void {
       /* ignore */
     }
     if (r.authProxy) void r.authProxy.close().catch(() => undefined);
+    if (r.socks5Forwarder) void r.socks5Forwarder.close().catch(() => undefined);
     if (r.automation) r.automation.registration.unregister();
     setProfileStatus(id, 'idle');
   }

@@ -20,11 +20,16 @@ export function EditProfileDrawer({ open, onClose, profile }: Props): JSX.Elemen
   const [startUrl, setStartUrl] = useState('');
   const [proxyId, setProxyId] = useState<string>('');
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<ProxyCheckResult | null>(null);
 
+  // Re-seed the form whenever the drawer is opened against a different
+  // profile. We key off `profile.id` (and `open`) rather than the object
+  // identity to avoid a stale form when the parent passes a refreshed copy
+  // of the same profile after `refresh()`.
   useEffect(() => {
-    if (profile) {
+    if (open && profile) {
       setName(profile.name);
       setGroup(profile.group ?? '');
       setTags(profile.tags ?? '');
@@ -32,8 +37,9 @@ export function EditProfileDrawer({ open, onClose, profile }: Props): JSX.Elemen
       setStartUrl(profile.startUrl ?? '');
       setProxyId(profile.proxyId ?? '');
       setTestResult(null);
+      setSaveError(null);
     }
-  }, [profile]);
+  }, [open, profile?.id, profile]);
 
   const selectedProxy = useMemo(
     () => proxies.find((p) => p.id === proxyId) ?? null,
@@ -45,17 +51,30 @@ export function EditProfileDrawer({ open, onClose, profile }: Props): JSX.Elemen
   async function save(): Promise<void> {
     if (!profile) return;
     setSaving(true);
+    setSaveError(null);
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setSaveError('Name cannot be empty.');
+      setSaving(false);
+      return;
+    }
     try {
+      const trimmedGroup = group.trim();
+      const trimmedTags = tags.trim();
+      const trimmedNotes = notes.trim();
+      const trimmedUrl = startUrl.trim();
       await window.api.profiles.update(profile.id, {
-        name: name.trim() || profile.name,
-        group: group.trim() || undefined,
-        tags: tags.trim() || undefined,
-        notes: notes.trim() || undefined,
-        startUrl: startUrl.trim() || undefined,
-        proxyId: proxyId || undefined,
+        name: trimmedName,
+        group: trimmedGroup === '' ? undefined : trimmedGroup,
+        tags: trimmedTags === '' ? undefined : trimmedTags,
+        notes: trimmedNotes === '' ? undefined : trimmedNotes,
+        startUrl: trimmedUrl === '' ? undefined : trimmedUrl,
+        proxyId: proxyId === '' ? undefined : proxyId,
       });
       await refresh();
       onClose();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
@@ -80,9 +99,21 @@ export function EditProfileDrawer({ open, onClose, profile }: Props): JSX.Elemen
       }
     >
       <div className="space-y-4">
+        {saveError && (
+          <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+            {saveError}
+          </div>
+        )}
         <div>
           <label className="label">Name</label>
-          <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+          <input
+            className="input"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void save();
+            }}
+          />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
