@@ -38,12 +38,13 @@ jobs:
         run: npm run lint
 
       - name: Build (electron-vite + electron-builder NSIS)
-        run: npm run build:win
+        # `--publish=never` makes electron-builder generate latest.yml + the
+        # .exe locally but skip the auto-upload step (we use
+        # softprops/action-gh-release below to attach files to the release).
+        run: npm run build && npx electron-builder --win --publish=never
         env:
           # Skip code-signing on CI (no certs configured); installer is unsigned
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-          # Avoid GitHub auto-publish; we attach to release in a later step
-          GH_TOKEN: ''
 
       - name: List release artifacts
         shell: pwsh
