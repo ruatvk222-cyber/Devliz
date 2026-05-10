@@ -33,4 +33,8 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: Devliz
-publish: null
+publish:
+  provider: github
+  owner: ruatvk222-cyber
+  repo: Devliz
+  releaseType: release

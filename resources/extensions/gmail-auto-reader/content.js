@@ -453,14 +453,14 @@
   // ---------- Bootstrap ----------
 
   function consumeAutoStart() {
-    // Honor one-shot autoStart from popup or Devliz bootstrap. Only respect
-    // it if it was set in the last 30 seconds so navigating away and back
-    // later doesn't re-trigger.
+    // Honor one-shot autoStart from popup or Devliz bootstrap. We respect it
+    // for up to 10 minutes so a user signing into Gmail (which can take a
+    // while if they have to enter 2FA) doesn't expire the trigger.
     chrome.storage.local.get(['autoStart', 'autoStartTs'], (vals) => {
       if (state.running) return;
       if (vals && vals.autoStart && vals.autoStartTs) {
         const age = Date.now() - vals.autoStartTs;
-        if (age < 30 * 1000) {
+        if (age < 10 * 60 * 1000) {
           chrome.storage.local.set({ autoStart: false });
           loadSettings().then((settings) => startAutomation(settings));
         }

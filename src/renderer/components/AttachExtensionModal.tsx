@@ -24,7 +24,8 @@ export function AttachExtensionModal({ open, profileIds, onClose }: Props): JSX.
   const [extName, setExtName] = useState('');
 
   const [installed, setInstalled] = useState<UserExtension[]>([]);
-  const [selectedExisting, setSelectedExisting] = useState<string>('');
+  // Multi-select: ids of installed extensions checked for bulk attach.
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +38,7 @@ export function AttachExtensionModal({ open, profileIds, onClose }: Props): JSX.
     setZipPath('');
     setStoreUrl('');
     setExtName('');
-    setSelectedExisting('');
+    setSelectedIds([]);
     setSubmitting(false);
     setError(null);
     setProgress(null);
@@ -46,6 +47,12 @@ export function AttachExtensionModal({ open, profileIds, onClose }: Props): JSX.
       .then((rows) => setInstalled(rows))
       .catch(() => setInstalled([]));
   }, [open]);
+
+  function toggleExisting(id: string): void {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  }
 
   async function pickFolder(): Promise<void> {
     const p = await window.api.extensions.pickFolder();
@@ -65,11 +72,20 @@ export function AttachExtensionModal({ open, profileIds, onClose }: Props): JSX.
     setError(null);
     setProgress(t('extensions.progressInstalling'));
     try {
+      // 1) If user ticked existing extensions, attach all of them in bulk.
+      if (selectedIds.length > 0) {
+        setProgress(t('extensions.progressAttaching'));
+        for (const id of selectedIds) {
+          await window.api.extensions.attach(id, profileIds);
+        }
+        await refresh();
+        onClose();
+        return;
+      }
+
+      // 2) Otherwise install a new one from the active tab and attach it.
       let extension: UserExtension | null = null;
-      if (selectedExisting) {
-        extension = installed.find((e) => e.id === selectedExisting) ?? null;
-        if (!extension) throw new Error('Selected extension was not found.');
-      } else if (tab === 'folder') {
+      if (tab === 'folder') {
         if (!folderPath.trim()) throw new Error(t('extensions.errPickFolder'));
         extension = await window.api.extensions.addFromFolder({
           folderPath: folderPath.trim(),
@@ -111,16 +127,21 @@ export function AttachExtensionModal({ open, profileIds, onClose }: Props): JSX.
           ? 'border-accent bg-accent/10 text-accent'
           : 'border-border bg-bg-surface hover:bg-bg-hover'
       }`}
-      onClick={() => {
-        setTab(key);
-        setSelectedExisting('');
-      }}
+      onClick={() => setTab(key)}
       disabled={submitting}
     >
       {icon}
       <span>{label}</span>
     </button>
   );
+
+  // The submit button text reflects whichever path is active: bulk-attach
+  // existing checked extensions, OR install a brand new one.
+  const submitLabel = submitting
+    ? progress ?? t('common.saving')
+    : selectedIds.length > 0
+      ? t('extensions.attachSelected', { n: selectedIds.length })
+      : t('extensions.install');
 
   return (
     <Modal
@@ -144,7 +165,7 @@ export function AttachExtensionModal({ open, profileIds, onClose }: Props): JSX.
             onClick={submit}
             disabled={submitting || profileIds.length === 0}
           >
-            {submitting ? progress ?? t('common.saving') : t('extensions.install')}
+            {submitLabel}
           </button>
         </>
       }
@@ -154,26 +175,50 @@ export function AttachExtensionModal({ open, profileIds, onClose }: Props): JSX.
           {t('extensions.modalDescription', { n: profileIds.length })}
         </div>
 
-        {installed.length > 0 && (
-          <div>
-            <label className="label">{t('extensions.reuseLabel')}</label>
-            <select
-              className="input"
-              value={selectedExisting}
-              onChange={(e) => setSelectedExisting(e.target.value)}
-              disabled={submitting}
-            >
-              <option value="">— {t('extensions.reuseAddNew')} —</option>
-              {installed.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.name} ({e.source})
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+        {/* ---- Already installed (multi-select) ---- */}
+        <div>
+          <label className="label">{t('extensions.installedHeader')}</label>
+          <p className="text-xs text-text-dim mb-2">
+            {t('extensions.installedHint')}
+          </p>
+          {installed.length === 0 ? (
+            <div className="card p-3 text-xs text-text-dim">
+              {t('extensions.installedEmpty')}
+            </div>
+          ) : (
+            <div className="card max-h-48 overflow-auto divide-y divide-border">
+              {installed.map((ext) => {
+                const checked = selectedIds.includes(ext.id);
+                return (
+                  <label
+                    key={ext.id}
+                    className={`flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-bg-hover text-sm ${
+                      checked ? 'bg-accent/5' : ''
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="accent-accent"
+                      checked={checked}
+                      onChange={() => toggleExisting(ext.id)}
+                      disabled={submitting}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate">{ext.name}</div>
+                      <div className="text-xs text-text-dim font-mono truncate">
+                        {ext.source}
+                        {ext.extId ? ` · ${ext.extId}` : ''}
+                      </div>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
-        {!selectedExisting && (
+        {/* ---- Install a new one (only relevant when nothing ticked) ---- */}
+        {selectedIds.length === 0 && (
           <>
             <div className="flex gap-2">
               {tabBtn(

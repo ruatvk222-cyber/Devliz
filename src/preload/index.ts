@@ -13,6 +13,7 @@ import type {
   ProxyCheckResult,
   ProxyConfig,
   ProxyImportOptions,
+  UpdateStatus,
   UserExtension,
 } from '@shared/types';
 
@@ -88,6 +89,20 @@ const api: IpcApi = {
     list: () => ipcRenderer.invoke('logs.list') as Promise<LaunchLogEntry[]>,
     read: (name: string) => ipcRenderer.invoke('logs.read', name) as Promise<string | null>,
     openFolder: () => ipcRenderer.invoke('logs.openFolder') as Promise<void>,
+  },
+  app: {
+    getVersion: () => ipcRenderer.invoke('app.getVersion') as Promise<string>,
+  },
+  updater: {
+    check: () => ipcRenderer.invoke('updater.check') as Promise<UpdateStatus>,
+    download: () => ipcRenderer.invoke('updater.download') as Promise<UpdateStatus>,
+    quitAndInstall: () => ipcRenderer.invoke('updater.quitAndInstall') as Promise<void>,
+    getStatus: () => ipcRenderer.invoke('updater.status') as Promise<UpdateStatus>,
+    onStatus: (cb) => {
+      const listener = (_e: unknown, status: UpdateStatus) => cb(status);
+      ipcRenderer.on('updater.status', listener);
+      return () => ipcRenderer.off('updater.status', listener);
+    },
   },
 };
 

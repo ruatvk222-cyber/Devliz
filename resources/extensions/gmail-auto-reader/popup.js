@@ -225,5 +225,24 @@
     }
   });
 
-  loadSettings().then(refreshStatusFromTab);
+  // If Devliz set autoStart in storage (via Automation tab) but the content
+  // script hasn't picked it up yet (e.g. Gmail tab still loading), auto-click
+  // Start so the user doesn't have to do it manually.
+  function maybeAutoStart() {
+    chrome.storage.local.get(['autoStart', 'autoStartTs'], (vals) => {
+      if (!vals || !vals.autoStart || !vals.autoStartTs) return;
+      const age = Date.now() - vals.autoStartTs;
+      if (age >= 10 * 60 * 1000) return;
+      // Defer one tick so the UI updates with "Đang mở Gmail…" before we
+      // start firing IPC.
+      setTimeout(() => {
+        if (els.startBtn.disabled) return;
+        void start();
+      }, 50);
+    });
+  }
+
+  loadSettings().then(() => {
+    refreshStatusFromTab().then(maybeAutoStart);
+  });
 })();

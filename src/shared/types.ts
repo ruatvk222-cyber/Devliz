@@ -254,6 +254,16 @@ export interface IpcApi {
     read(name: string): Promise<string | null>;
     openFolder(): Promise<void>;
   };
+  app: {
+    getVersion(): Promise<string>;
+  };
+  updater: {
+    check(): Promise<UpdateStatus>;
+    download(): Promise<UpdateStatus>;
+    quitAndInstall(): Promise<void>;
+    getStatus(): Promise<UpdateStatus>;
+    onStatus(callback: (status: UpdateStatus) => void): () => void;
+  };
 }
 
 export interface LaunchLogEntry {
@@ -261,6 +271,32 @@ export interface LaunchLogEntry {
   path: string;
   mtime: number;
   size: number;
+}
+
+export type UpdatePhase =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'up-to-date'
+  | 'downloading'
+  | 'downloaded'
+  | 'error';
+
+export interface UpdateProgress {
+  percent: number;
+  bytesPerSecond: number;
+  transferred: number;
+  total: number;
+}
+
+export interface UpdateStatus {
+  phase: UpdatePhase;
+  currentVersion?: string;
+  latestVersion?: string;
+  releaseNotes?: string;
+  releaseDate?: string;
+  progress?: UpdateProgress;
+  error?: string;
 }
 
 declare global {
