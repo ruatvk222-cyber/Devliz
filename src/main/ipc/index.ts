@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import type {
   AddExtensionFolderInput,
   AddExtensionStoreInput,
@@ -55,6 +55,12 @@ import {
 } from '../launcher/manager';
 import { checkProxies } from '../proxy/checker';
 import { listLaunchLogs, logsDir, readLaunchLog } from '../launcher/launch-log';
+import {
+  checkForUpdates,
+  downloadUpdate,
+  getUpdateStatus,
+  quitAndInstall,
+} from '../updater';
 
 function broadcast(channel: string, payload: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -190,6 +196,13 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('logs.openFolder', async (): Promise<void> => {
     await shell.openPath(logsDir());
   });
+
+  // ----- App / Updater
+  ipcMain.handle('app.getVersion', (): string => app.getVersion());
+  ipcMain.handle('updater.check', () => checkForUpdates());
+  ipcMain.handle('updater.download', () => downloadUpdate());
+  ipcMain.handle('updater.quitAndInstall', (): void => quitAndInstall());
+  ipcMain.handle('updater.status', () => getUpdateStatus());
 
   // Wire launcher events to all renderer windows.
   onLauncherStatus((status) => broadcast('launcher.status', status));

@@ -1,15 +1,23 @@
 import { useEffect, useState } from 'react';
 import {
+  Download,
   FileText,
   FolderOpen,
+  Info,
   Moon,
   RefreshCw,
+  RotateCcw,
   Save,
   Search,
   Settings as SettingsIcon,
   Sun,
 } from 'lucide-react';
-import type { AppLanguage, AppTheme, LaunchLogEntry } from '@shared/types';
+import type {
+  AppLanguage,
+  AppTheme,
+  LaunchLogEntry,
+  UpdateStatus,
+} from '@shared/types';
 import { useApp } from '../store';
 import { useT } from '../i18n';
 
@@ -34,6 +42,10 @@ export function SettingsPage(): JSX.Element {
   const [logBody, setLogBody] = useState<string | null>(null);
   const [logName, setLogName] = useState<string | null>(null);
 
+  // App version + auto-updater
+  const [appVersion, setAppVersion] = useState<string>('');
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ phase: 'idle' });
+
   async function refreshLogs(): Promise<void> {
     try {
       const list = await window.api.logs.list();
@@ -41,6 +53,36 @@ export function SettingsPage(): JSX.Element {
     } catch {
       setLogs([]);
     }
+  }
+
+  async function checkUpdates(): Promise<void> {
+    setUpdateStatus({ phase: 'checking' });
+    try {
+      const status = await window.api.updater.check();
+      setUpdateStatus(status);
+    } catch (err) {
+      setUpdateStatus({
+        phase: 'error',
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  async function downloadUpdate(): Promise<void> {
+    setUpdateStatus((prev) => ({ ...prev, phase: 'downloading' }));
+    try {
+      const status = await window.api.updater.download();
+      setUpdateStatus(status);
+    } catch (err) {
+      setUpdateStatus({
+        phase: 'error',
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  async function installUpdate(): Promise<void> {
+    await window.api.updater.quitAndInstall();
   }
 
   async function viewLog(name: string): Promise<void> {
@@ -66,6 +108,18 @@ export function SettingsPage(): JSX.Element {
 
   useEffect(() => {
     void refreshLogs();
+    void window.api.app.getVersion().then(setAppVersion).catch(() => {});
+    // Subscribe to live progress events from the auto-updater.
+    const unsub = window.api.updater.onStatus((status) => {
+      setUpdateStatus(status);
+    });
+    void window.api.updater
+      .getStatus()
+      .then((s) => {
+        if (s.phase !== 'idle') setUpdateStatus(s);
+      })
+      .catch(() => {});
+    return unsub;
   }, []);
 
   // Live-preview theme + language without a full save round-trip.
@@ -296,6 +350,111 @@ export function SettingsPage(): JSX.Element {
                 </pre>
               </div>
             )}
+          </div>
+
+          {/* ---- About / Auto-update ---- */}
+          <div className="card p-4">
+            <h2 className="font-semibold mb-3 flex items-center gap-2">
+              <Info size={16} className="text-accent" />
+              {t('settings.aboutHeader')}
+            </h2>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="text-text-muted">
+                  {t('settings.appVersion')}
+                </span>
+                <span className="font-mono">v{appVersion || '…'}</span>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={checkUpdates}
+                  disabled={
+                    updateStatus.phase === 'checking' ||
+                    updateStatus.phase === 'downloading'
+                  }
+                >
+                  <RotateCcw size={14} />
+                  {updateStatus.phase === 'checking'
+                    ? t('settings.checking')
+                    : t('settings.checkForUpdates')}
+                </button>
+
+                {updateStatus.phase === 'available' && (
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={downloadUpdate}
+                  >
+                    <Download size={14} /> {t('settings.downloadUpdate')}
+                  </button>
+                )}
+
+                {updateStatus.phase === 'downloaded' && (
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={installUpdate}
+                  >
+                    {t('settings.installUpdate')}
+                  </button>
+                )}
+              </div>
+
+              {/* Status messages */}
+              {updateStatus.phase === 'up-to-date' && (
+                <p className="text-xs text-success">
+                  {t('settings.upToDate')}
+                </p>
+              )}
+              {updateStatus.phase === 'available' && (
+                <div className="text-xs space-y-1">
+                  <p className="text-accent">
+                    {t('settings.updateAvailable', {
+                      v: updateStatus.latestVersion ?? '?',
+                    })}
+                  </p>
+                  {updateStatus.releaseNotes && (
+                    <details className="text-text-muted">
+                      <summary className="cursor-pointer hover:text-text-default">
+                        {t('settings.releaseNotes')}
+                      </summary>
+                      <pre className="mt-2 whitespace-pre-wrap break-words bg-bg-deep border border-border rounded p-2 max-h-48 overflow-auto">
+                        {updateStatus.releaseNotes}
+                      </pre>
+                    </details>
+                  )}
+                </div>
+              )}
+              {updateStatus.phase === 'downloading' && updateStatus.progress && (
+                <div className="space-y-1">
+                  <p className="text-xs text-text-muted">
+                    {t('settings.downloading')}{' '}
+                    {Math.round(updateStatus.progress.percent)}% (
+                    {(updateStatus.progress.transferred / 1024 / 1024).toFixed(
+                      1,
+                    )}{' '}
+                    /{' '}
+                    {(updateStatus.progress.total / 1024 / 1024).toFixed(1)} MB)
+                  </p>
+                  <div className="h-1.5 bg-bg-deep rounded">
+                    <div
+                      className="h-full bg-accent rounded transition-all"
+                      style={{
+                        width: `${Math.min(100, Math.max(0, updateStatus.progress.percent))}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+              {updateStatus.phase === 'error' && (
+                <p className="text-xs text-danger">
+                  {t('settings.updateError')}: {updateStatus.error}
+                </p>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center gap-3">

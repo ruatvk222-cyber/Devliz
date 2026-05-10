@@ -126,6 +126,26 @@ const en: Dict = {
   'extensions.progressInstalling': 'Installing…',
   'extensions.progressDownloading': 'Downloading from Web Store…',
   'extensions.progressAttaching': 'Attaching to profiles…',
+  'extensions.installedHeader': 'Already installed',
+  'extensions.installedHint':
+    'Pick from extensions you already added. Tick multiple to attach all of them at once.',
+  'extensions.attachSelected': 'Attach {n} selected',
+  'extensions.installedEmpty':
+    'You haven\'t added any extensions yet. Use the tabs above to install one.',
+
+  'settings.aboutHeader': 'About',
+  'settings.appVersion': 'App version',
+  'settings.checkForUpdates': 'Check for updates',
+  'settings.checking': 'Checking…',
+  'settings.upToDate': 'You\'re on the latest version.',
+  'settings.updateAvailable': 'New version {v} available',
+  'settings.updateError': 'Update check failed',
+  'settings.downloadUpdate': 'Download update',
+  'settings.downloading': 'Downloading…',
+  'settings.installUpdate': 'Install & restart',
+  'settings.releaseNotes': 'Release notes',
+  'settings.dev_mode_no_update':
+    'Auto-update only works in the installed app. (Dev mode detected.)',
 };
 
 const vi: Dict = {
@@ -253,6 +273,26 @@ const vi: Dict = {
   'extensions.progressInstalling': 'Đang cài…',
   'extensions.progressDownloading': 'Đang tải từ Web Store…',
   'extensions.progressAttaching': 'Đang áp vào hồ sơ…',
+  'extensions.installedHeader': 'Đã cài sẵn',
+  'extensions.installedHint':
+    'Chọn từ các extension bạn đã thêm trước đó. Tick nhiều cái để áp tất cả cùng lúc.',
+  'extensions.attachSelected': 'Áp {n} đã chọn',
+  'extensions.installedEmpty':
+    'Bạn chưa thêm extension nào. Dùng các tab ở trên để cài.',
+
+  'settings.aboutHeader': 'Giới thiệu',
+  'settings.appVersion': 'Phiên bản app',
+  'settings.checkForUpdates': 'Kiểm tra cập nhật',
+  'settings.checking': 'Đang kiểm tra…',
+  'settings.upToDate': 'Bạn đang dùng bản mới nhất.',
+  'settings.updateAvailable': 'Có bản mới {v}',
+  'settings.updateError': 'Kiểm tra cập nhật thất bại',
+  'settings.downloadUpdate': 'Tải bản mới',
+  'settings.downloading': 'Đang tải…',
+  'settings.installUpdate': 'Cài & khởi động lại',
+  'settings.releaseNotes': 'Ghi chú phát hành',
+  'settings.dev_mode_no_update':
+    'Tính năng auto-update chỉ chạy ở bản cài đặt. (Đang ở dev mode.)',
 };
 
 const dicts: Record<AppLanguage, Dict> = { 'en-US': en, 'vi-VN': vi };
