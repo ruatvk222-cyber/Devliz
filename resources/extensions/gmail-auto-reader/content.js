@@ -71,16 +71,40 @@
   // ---------- Settings + storage ----------
 
   function loadSettings() {
+    // Prefer storage.local (where Devliz writes per-launch config). Fall back
+    // to storage.sync for legacy values, then to hard-coded defaults.
     return new Promise((resolve) => {
-      chrome.storage.sync.get(
+      chrome.storage.local.get(
         ['readSeconds', 'maxItems', 'humanLike'],
-        (vals) => {
-          resolve({
-            readSeconds:
-              typeof vals.readSeconds === 'number' ? vals.readSeconds : 5,
-            maxItems: typeof vals.maxItems === 'number' ? vals.maxItems : 50,
-            humanLike: typeof vals.humanLike === 'boolean' ? vals.humanLike : true,
-          });
+        (loc) => {
+          const haveLocal =
+            typeof loc.readSeconds === 'number' ||
+            typeof loc.maxItems === 'number' ||
+            typeof loc.humanLike === 'boolean';
+          if (haveLocal) {
+            resolve({
+              readSeconds:
+                typeof loc.readSeconds === 'number' ? loc.readSeconds : 5,
+              maxItems:
+                typeof loc.maxItems === 'number' ? loc.maxItems : 20,
+              humanLike:
+                typeof loc.humanLike === 'boolean' ? loc.humanLike : false,
+            });
+            return;
+          }
+          chrome.storage.sync.get(
+            ['readSeconds', 'maxItems', 'humanLike'],
+            (sync) => {
+              resolve({
+                readSeconds:
+                  typeof sync.readSeconds === 'number' ? sync.readSeconds : 5,
+                maxItems:
+                  typeof sync.maxItems === 'number' ? sync.maxItems : 20,
+                humanLike:
+                  typeof sync.humanLike === 'boolean' ? sync.humanLike : false,
+              });
+            },
+          );
         },
       );
     });
@@ -452,20 +476,34 @@
 
   // ---------- Bootstrap ----------
 
-  function consumeAutoStart() {
-    // Honor one-shot autoStart from popup or Devliz bootstrap. We respect it
-    // for up to 10 minutes so a user signing into Gmail (which can take a
-    // while if they have to enter 2FA) doesn't expire the trigger.
-    chrome.storage.local.get(['autoStart', 'autoStartTs'], (vals) => {
-      if (state.running) return;
-      if (vals && vals.autoStart && vals.autoStartTs) {
-        const age = Date.now() - vals.autoStartTs;
-        if (age < 10 * 60 * 1000) {
-          chrome.storage.local.set({ autoStart: false });
-          loadSettings().then((settings) => startAutomation(settings));
-        }
-      }
-    });
+  async function consumeAutoStart() {
+    if (state.running) return;
+    // Only auto-start on Gmail. The content script also runs in popups
+    // / iframes where there's nothing to read.
+    if (!/(^|\.)mail\.google\.com$/i.test(location.host)) return;
+
+    const vals = await new Promise((resolve) =>
+      chrome.storage.local.get(['autoStart', 'autoStartTs'], resolve),
+    );
+    if (!vals || !vals.autoStart || !vals.autoStartTs) return;
+    const age = Date.now() - vals.autoStartTs;
+    if (age >= 10 * 60 * 1000) return;
+
+    // Show the user we're waiting on Gmail, but DO NOT clear the autoStart
+    // flag until Gmail's inbox UI is actually rendered. That way if the page
+    // is still loading / signing in, the trigger stays armed and the popup
+    // (or a tab reload) can retry.
+    setOverlay(
+      'idle',
+      'Waiting for Gmail',
+      'Đợi Gmail tải xong, sẽ tự bắt đầu…',
+    );
+    const ready = await waitForGmailReady(60 * 1000);
+    if (!ready || state.running) return;
+
+    chrome.storage.local.set({ autoStart: false });
+    const settings = await loadSettings();
+    startAutomation(settings);
   }
 
   function init() {

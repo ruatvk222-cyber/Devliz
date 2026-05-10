@@ -37,15 +37,32 @@
   }
 
   function loadSettings() {
+    // Read storage.local first (where Devliz writes per-launch config).
+    // Fall back to storage.sync for any values the popup user manually edited
+    // before this version.
     return new Promise((resolve) => {
-      chrome.storage.sync.get(STORAGE_KEYS, (vals) => {
-        if (typeof vals.readSeconds === 'number')
-          els.readSeconds.value = vals.readSeconds;
-        if (typeof vals.maxItems === 'number')
-          els.maxItems.value = vals.maxItems;
-        if (typeof vals.humanLike === 'boolean')
-          els.humanLike.checked = vals.humanLike;
-        resolve();
+      chrome.storage.local.get(STORAGE_KEYS, (loc) => {
+        const fillFrom = (vals) => {
+          if (typeof vals.readSeconds === 'number')
+            els.readSeconds.value = vals.readSeconds;
+          if (typeof vals.maxItems === 'number')
+            els.maxItems.value = vals.maxItems;
+          if (typeof vals.humanLike === 'boolean')
+            els.humanLike.checked = vals.humanLike;
+        };
+        const haveLocal =
+          typeof loc.readSeconds === 'number' ||
+          typeof loc.maxItems === 'number' ||
+          typeof loc.humanLike === 'boolean';
+        if (haveLocal) {
+          fillFrom(loc);
+          resolve();
+          return;
+        }
+        chrome.storage.sync.get(STORAGE_KEYS, (sync) => {
+          fillFrom(sync);
+          resolve();
+        });
       });
     });
   }
@@ -53,11 +70,20 @@
   function saveSettings() {
     const payload = {
       readSeconds: clampInt(els.readSeconds.value, 1, 120, 5),
-      maxItems: clampInt(els.maxItems.value, 1, 200, 50),
+      maxItems: clampInt(els.maxItems.value, 1, 200, 20),
       humanLike: !!els.humanLike.checked,
     };
     return new Promise((resolve) => {
-      chrome.storage.sync.set(payload, () => resolve(payload));
+      // Write to BOTH storages so whichever one the content script reads gets
+      // the up-to-date values.
+      chrome.storage.local.set(payload, () => {
+        try {
+          chrome.storage.sync.set(payload);
+        } catch (_) {
+          /* ignore */
+        }
+        resolve(payload);
+      });
     });
   }
 

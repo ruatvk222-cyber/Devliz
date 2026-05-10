@@ -3,20 +3,10 @@
 
 const GMAIL_URL = 'https://mail.google.com/mail/u/0/#inbox';
 
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.sync.get(
-    ['readSeconds', 'maxItems', 'humanLike'],
-    (vals) => {
-      const defaults = {};
-      if (typeof vals.readSeconds !== 'number') defaults.readSeconds = 5;
-      if (typeof vals.maxItems !== 'number') defaults.maxItems = 50;
-      if (typeof vals.humanLike !== 'boolean') defaults.humanLike = true;
-      if (Object.keys(defaults).length > 0) {
-        chrome.storage.sync.set(defaults);
-      }
-    },
-  );
-});
+// NOTE: We deliberately do NOT seed defaults via chrome.runtime.onInstalled.
+// Doing so races against devlizBootstrap() (which writes the user's per-launch
+// config) and can clobber it with hard-coded defaults like maxItems=50.
+// Defaults live in content.js / popup.js fallbacks instead.
 
 // Allow other extension surfaces (popup, content script) to ask the background
 // to open / focus a Gmail tab.
@@ -97,15 +87,29 @@ async function devlizBootstrap() {
   const maxItems = clampInt(cfg.maxItems, 1, 200, 20);
   const humanLike = !!cfg.humanLike;
 
-  await devlizPromisify((cb) =>
-    chrome.storage.sync.set({ readSeconds, maxItems, humanLike }, cb),
-  );
+  // Write everything to storage.local in a SINGLE call. This is per-profile
+  // per-extension, doesn't depend on a Google account (unlike storage.sync),
+  // and atomically commits all keys so content.js / popup.js can't observe a
+  // partial state where autoStart=true but readSeconds is still default.
+  // We also mirror to storage.sync purely for any user that opens the popup
+  // and edits values — they'll persist across reloads.
   await devlizPromisify((cb) =>
     chrome.storage.local.set(
-      { autoStart: true, autoStartTs: Date.now() },
+      {
+        readSeconds,
+        maxItems,
+        humanLike,
+        autoStart: true,
+        autoStartTs: Date.now(),
+      },
       cb,
     ),
   );
+  try {
+    chrome.storage.sync.set({ readSeconds, maxItems, humanLike });
+  } catch (_) {
+    /* sync may be unavailable; local already has the values */
+  }
 
   // Devliz already passes the Gmail URL on the Chrome command line, so the
   // first window is opening on Gmail by the time we get here. We only need
